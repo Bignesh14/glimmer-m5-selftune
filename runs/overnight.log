@@ -1,0 +1,140 @@
+session 20261028-010555: A=v0_original  B=g_unguided_low_10280045_a2  pairs=6 (+1 warm-up pair)
+--- pair 0 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok @ 276.9 tok/s, gen 800 @ 26.585 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 807.5 tok/s, gen 8 @ 29.947 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 813.7 tok/s, gen 8 @ 29.639 tok/s, peak 16.60 GB
+--- pair 0 slot B: g_unguided_low_10280045_a2
+variant g_unguided_low_10280045_a2 (e24eb6522b42) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_unguided_low_10280045_a2 decode: prompt 73 tok @ 286.8 tok/s, gen 800 @ 26.582 tok/s, peak 15.80 GB
+g_unguided_low_10280045_a2 prefill_1k: prompt 1080 tok @ 809.3 tok/s, gen 8 @ 29.896 tok/s, peak 16.34 GB
+g_unguided_low_10280045_a2 prefill_4k: prompt 4152 tok @ 815.3 tok/s, gen 8 @ 29.632 tok/s, peak 16.60 GB
+--- pair 1 slot B: g_unguided_low_10280045_a2
+variant g_unguided_low_10280045_a2 (e24eb6522b42) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_unguided_low_10280045_a2 decode: prompt 73 tok @ 286.4 tok/s, gen 800 @ 26.600 tok/s, peak 15.80 GB
+g_unguided_low_10280045_a2 prefill_1k: prompt 1080 tok @ 809.0 tok/s, gen 8 @ 29.875 tok/s, peak 16.34 GB
+g_unguided_low_10280045_a2 prefill_4k: prompt 4152 tok @ 814.5 tok/s, gen 8 @ 29.688 tok/s, peak 16.60 GB
+--- pair 1 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok @ 286.4 tok/s, gen 800 @ 26.568 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 808.4 tok/s, gen 8 @ 29.928 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 813.8 tok/s, gen 8 @ 29.635 tok/s, peak 16.60 GB
+--- pair 2 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok @ 286.1 tok/s, gen 800 @ 26.586 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.1 tok/s, gen 8 @ 29.939 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 813.7 tok/s, gen 8 @ 29.641 tok/s, peak 16.60 GB
+--- pair 2 slot B: g_unguided_low_10280045_a2
+variant g_unguided_low_10280045_a2 (e24eb6522b42) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_unguided_low_10280045_a2 decode: prompt 73 tok @ 286.7 tok/s, gen 800 @ 26.503 tok/s, peak 15.80 GB
+g_unguided_low_10280045_a2 prefill_1k: prompt 1080 tok @ 809.7 tok/s, gen 8 @ 29.913 tok/s, peak 16.34 GB
+g_unguided_low_10280045_a2 prefill_4k: prompt 4152 tok @ 815.3 tok/s, gen 8 @ 29.628 tok/s, peak 16.60 GB
+--- pair 3 slot B: g_unguided_low_10280045_a2
+variant g_unguided_low_10280045_a2 (e24eb6522b42) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_unguided_low_10280045_a2 decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.589 tok/s, peak 15.80 GB
+g_unguided_low_10280045_a2 prefill_1k: prompt 1080 tok @ 808.4 tok/s, gen 8 @ 29.929 tok/s, peak 16.34 GB
+g_unguided_low_10280045_a2 prefill_4k: prompt 4152 tok @ 815.5 tok/s, gen 8 @ 29.631 tok/s, peak 16.60 GB
+--- pair 3 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok @ 286.7 tok/s, gen 800 @ 26.587 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 808.3 tok/s, gen 8 @ 29.896 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 813.3 tok/s, gen 8 @ 29.610 tok/s, peak 16.60 GB
+--- pair 4 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok @ 286.3 tok/s, gen 800 @ 26.508 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.0 tok/s, gen 8 @ 29.917 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.0 tok/s, gen 8 @ 29.511 tok/s, peak 16.60 GB
+--- pair 4 slot B: g_unguided_low_10280045_a2
+variant g_unguided_low_10280045_a2 (e24eb6522b42) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_unguided_low_10280045_a2 decode: prompt 73 tok @ 286.6 tok/s, gen 800 @ 26.560 tok/s, peak 15.80 GB
+g_unguided_low_10280045_a2 prefill_1k: prompt 1080 tok @ 809.1 tok/s, gen 8 @ 29.914 tok/s, peak 16.34 GB
+g_unguided_low_10280045_a2 prefill_4k: prompt 4152 tok @ 814.6 tok/s, gen 8 @ 29.635 tok/s, peak 16.60 GB
+--- pair 5 slot B: g_unguided_low_10280045_a2
+variant g_unguided_low_10280045_a2 (e24eb6522b42) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_unguided_low_10280045_a2 decode: prompt 73 tok @ 286.8 tok/s, gen 800 @ 26.601 tok/s, peak 15.80 GB
+g_unguided_low_10280045_a2 prefill_1k: prompt 1080 tok @ 809.1 tok/s, gen 8 @ 29.905 tok/s, peak 16.34 GB
+g_unguided_low_10280045_a2 prefill_4k: prompt 4152 tok @ 815.0 tok/s, gen 8 @ 29.655 tok/s, peak 16.60 GB
+--- pair 5 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok @ 286.8 tok/s, gen 800 @ 26.586 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 807.3 tok/s, gen 8 @ 29.430 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.1 tok/s, gen 8 @ 29.614 tok/s, peak 16.60 GB
+--- pair 6 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok @ 286.4 tok/s, gen 800 @ 26.577 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 808.3 tok/s, gen 8 @ 29.906 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 813.3 tok/s, gen 8 @ 28.891 tok/s, peak 16.60 GB
+--- pair 6 slot B: g_unguided_low_10280045_a2
+variant g_unguided_low_10280045_a2 (e24eb6522b42) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_unguided_low_10280045_a2 decode: prompt 73 tok @ 286.1 tok/s, gen 800 @ 26.507 tok/s, peak 15.80 GB
+g_unguided_low_10280045_a2 prefill_1k: prompt 1080 tok @ 808.3 tok/s, gen 8 @ 29.887 tok/s, peak 16.34 GB
+g_unguided_low_10280045_a2 prefill_4k: prompt 4152 tok @ 815.0 tok/s, gen 8 @ 29.637 tok/s, peak 16.60 GB
+done. Analyse with:  python bench/compare.py --session 20261028-010555
+run unguided_high_20261028-011603: arm=unguided strength=high attempts=3
+
+=== attempt 1: asking Glimmer (g_unguided_high_10280116_a1)
+PROPOSE {"prompt_tokens": 3322, "gen_tokens": 12000, "gen_seconds": 472.3, "hit_max_tokens": true, "peak_mem_gb": 16.57, "reasoning_tokens": 12000, "variant": "g_unguided_high_10280116_a1", "strength": "high", "visible_answer": false, "code_found": false}
+
+=== attempt 2: asking Glimmer (g_unguided_high_10280124_a2)
+PROPOSE {"prompt_tokens": 3368, "gen_tokens": 10755, "gen_seconds": 423.3, "hit_max_tokens": false, "peak_mem_gb": 16.49, "reasoning_tokens": 10208, "variant": "g_unguided_high_10280124_a2", "strength": "high", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_unguided_high_10280124_a2
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 159, in main
+    vmod.post_load(model)                             # e.g. precompute / merge weights
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_unguided_high_10280124_a2.py", line 50, in post_load
+    norm_w = mx.fast.rms_norm(w, None, eps)
+ValueError: [rms_norm] Received unsupported type uint32.
+
+=== attempt 3: asking Glimmer (g_unguided_high_10280131_a3)
+PROPOSE {"prompt_tokens": 4113, "gen_tokens": 3316, "gen_seconds": 133.5, "hit_max_tokens": false, "peak_mem_gb": 16.6, "reasoning_tokens": 2797, "variant": "g_unguided_high_10280131_a3", "strength": "high", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_unguided_high_10280131_a3
+    out = self.lm_head(out)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx/nn/layers/quantized.py", line 273, in __call__
+    x = mx.quantized_matmul(
+        x,
+    ...<6 lines>...
+        mode=self.mode,
+    )
+ValueError: [quantized_matmul] The weight matrix should be uint32 but received float32
+
+No passing variant after 3 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/unguided_high_20261028-011603
+run guided_high_20261028-013335: arm=guided strength=high attempts=3
+
+=== attempt 1: asking Glimmer (g_guided_high_10280133_a1)
+PROPOSE {"prompt_tokens": 3531, "gen_tokens": 12000, "gen_seconds": 472.8, "hit_max_tokens": true, "peak_mem_gb": 16.49, "reasoning_tokens": 12000, "variant": "g_guided_high_10280133_a1", "strength": "high", "visible_answer": false, "code_found": false}
+
+=== attempt 2: asking Glimmer (g_guided_high_10280141_a2)
+PROPOSE {"prompt_tokens": 3577, "gen_tokens": 12000, "gen_seconds": 473.0, "hit_max_tokens": true, "peak_mem_gb": 16.51, "reasoning_tokens": 12000, "variant": "g_guided_high_10280141_a2", "strength": "high", "visible_answer": false, "code_found": false}
+
+=== attempt 3: asking Glimmer (g_guided_high_10280149_a3)
+PROPOSE {"prompt_tokens": 3623, "gen_tokens": 12000, "gen_seconds": 473.1, "hit_max_tokens": true, "peak_mem_gb": 16.54, "reasoning_tokens": 12000, "variant": "g_guided_high_10280149_a3", "strength": "high", "visible_answer": false, "code_found": false}
+
+No passing variant after 3 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/guided_high_20261028-013335
+run guided_low_20261028-015726: arm=guided strength=low attempts=3
+
+=== attempt 1: asking Glimmer (g_guided_low_10280157_a1)
+PROPOSE {"prompt_tokens": 3531, "gen_tokens": 1687, "gen_seconds": 69.6, "hit_max_tokens": false, "peak_mem_gb": 16.49, "reasoning_tokens": 875, "variant": "g_guided_low_10280157_a1", "strength": "low", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_low_10280157_a1
+    ~~~~~~~~~^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_guided_low_10280157_a1.py", line 62, in fuse_norm
+    for name, child in mod.named_children():
+                       ^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx/nn/layers/base.py", line 103, in __getattr__
+    super(Module, self).__getattribute__(key)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+AttributeError: 'Model' object has no attribute 'named_children'
+
+=== attempt 2: asking Glimmer (g_guided_low_10280158_a2)
+PROPOSE {"prompt_tokens": 4644, "gen_tokens": 403, "gen_seconds": 21.3, "hit_max_tokens": false, "peak_mem_gb": 16.6, "reasoning_tokens": 122, "variant": "g_guided_low_10280158_a2", "strength": "low", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_low_10280158_a2
+variant g_guided_low_10280158_a2 (1cbe04203d48) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+
+PASS: g_guided_low_10280158_a2 is correct. It stays in bench/variants/.
+Race it with:  python bench/ab.py --a v0_original --b g_guided_low_10280158_a2 --pairs 6
