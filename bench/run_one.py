@@ -121,6 +121,10 @@ def timed_run(model, ids, n_tokens):
 
 def speed(model, cases, a, vname, vsha, lpm):
     timed_run(model, cases["chat"], 16)                   # warm-up, not recorded
+    # Peak since the process started: includes loading, post_load and the first forward pass,
+    # which the per-case peaks below (reset before each case) do not see.
+    load_peak = mx.get_peak_memory() / 1e9
+    print(f"{vname} peak incl. loading + first pass: {load_peak:.2f} GB")
     plan = [("decode", "code", C.DECODE_TOKENS),
             ("prefill_1k", "p1024", C.PREFILL_TOKENS),
             ("prefill_4k", "p4096", C.PREFILL_TOKENS)]
@@ -134,7 +138,7 @@ def speed(model, cases, a, vname, vsha, lpm):
                      "case": case, "prompt_tokens": p_tok, "prompt_tps": round(p_tps, 3),
                      "gen_tokens": g_tok, "gen_tps": round(g_tps, 3),
                      "peak_mem_gb": round(peak, 3), "lowpowermode": lpm,
-                     "versions": C.versions(), "notes": ""})
+                     "versions": C.versions(), "notes": f"peak_incl_load={load_peak:.2f}"})
         print(f"{vname} {case}: prompt {p_tok} tok @ {p_tps:.1f} tok/s, "
               f"gen {g_tok} @ {g_tps:.3f} tok/s, peak {peak:.2f} GB")
     C.append_rows(rows)
