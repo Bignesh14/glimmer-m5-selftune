@@ -116,19 +116,37 @@ def main():
     p.add_argument("--max-tokens", type=int, default=16000)
     p.add_argument("--race", action="store_true", help="race a passing variant against v0")
     p.add_argument("--fake-dir", help="testing only: replies a1.txt, a2.txt, ... instead of Glimmer")
+    p.add_argument("--resume", help="continue an earlier run's conversation (closed loop: refine)")
+    p.add_argument("--feedback-file", help="with --resume: measurements to send Glimmer first")
     a = p.parse_args()
 
     C.guard()
-    run_id = f"{a.arm}_{a.strength}_{PROMPT_VERSION}_{time.strftime('%Y%m%d-%H%M%S')}"
-    folder = PROPOSE_DIR / run_id
-    folder.mkdir(parents=True, exist_ok=True)
-    conv_path = folder / "conv.json"
-    conv_path.write_text(json.dumps([{"role": "user", "content": first_message(a.arm)}], indent=1))
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    if a.resume:
+        # Closed loop: same conversation, plus our measurements of Glimmer's earlier variant.
+        folder = Path(a.resume)
+        conv_path = folder / "conv.json"
+        conv = json.loads(conv_path.read_text())
+        extra = Path(a.feedback_file).read_text().strip()
+        if conv[-1]["role"] == "user":            # merge with the referee's last message
+            conv[-1]["content"] += "\n\n" + extra
+        else:
+            conv.append({"role": "user", "content": extra})
+        conv_path.write_text(json.dumps(conv, indent=1))
+        run_id = f"{folder.name}_refine_{stamp}"
+        tag = "r"
+    else:
+        run_id = f"{a.arm}_{a.strength}_{PROMPT_VERSION}_{stamp}"
+        folder = PROPOSE_DIR / run_id
+        folder.mkdir(parents=True, exist_ok=True)
+        conv_path = folder / "conv.json"
+        conv_path.write_text(json.dumps([{"role": "user", "content": first_message(a.arm)}], indent=1))
+        tag = "a"
     print(f"run {run_id}: arm={a.arm} strength={a.strength} attempts={a.attempts}")
 
     winner = None
     for k in range(1, a.attempts + 1):
-        vname = f"g_{a.arm}_{a.strength}_{time.strftime('%m%d%H%M')}_a{k}"
+        vname = f"g_{a.arm}_{a.strength}_{time.strftime('%m%d%H%M')}_{tag}{k}"
         row = {"time": C.now(), "run_id": run_id, "arm": a.arm, "strength": a.strength,
                "attempt": k, "variant": vname}
         cmd = [sys.executable, str(HERE / "propose.py"), "--conv", str(conv_path),

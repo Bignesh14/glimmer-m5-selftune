@@ -1,0 +1,17 @@
+MEASURED RESULTS FOR YOUR FUSED VARIANT (fused q/k/v and fused gate/up; your attempt 3), from the timed runs:
+- Speed, 3 independent races, 18 paired runs per case:
+  * decode: +0.23% faster (faster in 18 of 18 pairs) - a real gain, the first one above the 0.1% bar.
+  * prompt processing, 4K tokens: +0.40% faster (18 of 18 pairs).
+  * prompt processing, 1K tokens: -0.42% SLOWER (slower in 18 of 18 pairs).
+- Peak memory: 24.6 to 26.3 GB, versus 15.8 to 16.6 GB for the original. This is OVER the 25 GB limit,
+  because the original q_proj/k_proj/v_proj and gate_proj/up_proj weights stay in memory next to your fused copies.
+- Correctness: outputs are not bit-identical (log-probability differences up to 0.875; on one prompt the tokens
+  diverge at step 226). A control that computes the same MLP projections as two half-size quantized matmuls is
+  bit-exact, so the differences come specifically from your fused shapes.
+
+YOUR NEXT TASK: write an improved variant that
+1. keeps peak memory under 25 GB - the separate original projection weights must not remain in memory;
+2. keeps the decode speedup;
+3. avoids the 1K-token prompt slowdown if you can;
+4. reduces the output differences; bit-identical output (EXACT = True) is best.
+Reply with a short explanation, then the COMPLETE variant file in ONE ```python block.

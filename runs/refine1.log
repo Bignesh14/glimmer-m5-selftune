@@ -1,0 +1,27 @@
+run guided_medium_p2_20261028-072922_refine_20261028-110556: arm=guided strength=medium attempts=3
+
+=== attempt 1: asking Glimmer (g_guided_medium_10281105_r1)
+PROPOSE {"prompt_tokens": 8785, "gen_tokens": 6203, "gen_seconds": 254.2, "hit_max_tokens": false, "peak_mem_gb": 16.66, "reasoning_tokens": 4781, "variant": "g_guided_medium_10281105_r1", "strength": "medium", "visible_answer": true, "code_found": true}
+
+=== attempt 2: asking Glimmer (g_guided_medium_10281110_r2)
+PROPOSE {"prompt_tokens": 10281, "gen_tokens": 2223, "gen_seconds": 100.1, "hit_max_tokens": false, "peak_mem_gb": 16.68, "reasoning_tokens": 882, "variant": "g_guided_medium_10281110_r2", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_medium_10281110_r2
+variant g_guided_medium_10281110_r2 (144abf936660) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=False maxdiff_all=0.625 maxdiff_top20=0.625
+code   first_mismatch= 226 match=0.9922 bitexact=False maxdiff_all=1.75 maxdiff_top20=0.75
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=False maxdiff_all=0.875 maxdiff_top20=0.75
+VERDICT: FAIL (variant claims bit-exact, output differs)
+
+=== attempt 3: asking Glimmer (g_guided_medium_10281112_r3)
+PROPOSE {"prompt_tokens": 11871, "gen_tokens": 3966, "gen_seconds": 171.1, "hit_max_tokens": false, "peak_mem_gb": 16.68, "reasoning_tokens": 3407, "variant": "g_guided_medium_10281112_r3", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_medium_10281112_r3
+variant g_guided_medium_10281112_r3 (61f3a8b8178c) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+
+PASS: g_guided_medium_10281112_r3 is correct. It stays in bench/variants/.
+Race it with:  python bench/ab.py --a v0_original --b g_guided_medium_10281112_r3 --pairs 6
