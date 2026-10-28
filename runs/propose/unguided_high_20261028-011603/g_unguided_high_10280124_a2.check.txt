@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 173, in <module>
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 159, in main
+    vmod.post_load(model)                             # e.g. precompute / merge weights
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_unguided_high_10280124_a2.py", line 50, in post_load
+    norm_w = mx.fast.rms_norm(w, None, eps)
+ValueError: [rms_norm] Received unsupported type uint32.

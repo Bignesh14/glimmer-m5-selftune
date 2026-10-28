@@ -1,0 +1,37 @@
+variant g_unguided_high_10280131_a3 (29a71a13ce11) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+Traceback (most recent call last):
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 173, in <module>
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 167, in main
+    check(model, cases, vmod, a.variant, vsha)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 69, in check
+    toks, lps = run_tokens(model, ids, C.CHECK_TOKENS, C.LOGIT_STEPS)
+                ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 39, in run_tokens
+    for i, (tok, lp) in enumerate(generate_step(mx.array(ids), model,
+                        ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                max_tokens=n_tokens, sampler=sampler)):
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/generate.py", line 441, in generate_step
+    _model_call(
+    ~~~~~~~~~~~^
+        input_tokens=processed[None],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        ),
+        ^^
+    )
+    ^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/generate.py", line 401, in _model_call
+    return model(input_tokens, cache=prompt_cache)
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_unguided_high_10280131_a3.py", line 29, in new_model_call
+    out = self.lm_head(out)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx/nn/layers/quantized.py", line 273, in __call__
+    x = mx.quantized_matmul(
+        x,
+    ...<6 lines>...
+        mode=self.mode,
+    )
+ValueError: [quantized_matmul] The weight matrix should be uint32 but received float32

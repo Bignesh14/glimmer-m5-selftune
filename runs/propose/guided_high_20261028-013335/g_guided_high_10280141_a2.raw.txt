@@ -1,0 +1,827 @@
+ to=self<|message|>Your reply did not contain the complete variant file in one ```python block. Reply again with a short explanation and the COMPLETE file in ONE ```python block.
+
+We need to produce variant file. Need to make text generation faster without changing output. Must be same output. EXACT? Could be True or False. If EXACT True, outputs must be bit-identical. Safer to keep EXACT True.
+
+We need to speed up. Decode is memory bandwidth bound, 87% of 460 GB/s. Each token reads ~15 GB weights. Need reduce memory traffic per token, fewer kernel launches, fuse elementwise ops.
+
+Potential optimizations:
+
+CenteredRMSNorm: currently uses mx.fast.rms_norm(x, 1.0 + self.weight, self.eps). weight is zeros initially? Actually weight is zeros. 1.0 + weight is constant 1. So we could precompute? But weight is zero, so 1.0+weight =1. So rms_norm with weight 1 is just norm. Could we replace with mx.fast.rms_norm(x, 1.0, eps)? But weight is zero, so 1+weight =1. That's fine. But weight is trainable? In model, weight is zeros. Might be zero always? Could be zero init. Might stay zero? Possibly weight is zero at inference. Could we just remove weight? That would change output? If weight is zero, 1+weight =1, so same. If weight is non-zero after loading, then changing would change output. Hmm.
+
+CenteredRMSNorm weight is mx.zeros. After loading weights, weight will be loaded from checkpoint. So weight may be non-zero. So can't assume zero.
+
+But we can precompute 1+weight once after load, store as weight_plus_one, then call rms_norm with that. That saves one addition per call? Actually 1.0 + self.weight is computed each call? In __call__, it does 1.0 + self.weight, which is a small array addition. That's cheap. But maybe we can fuse.
+
+Better idea: fuse the two RMSNorms in Attention? Q and K rms_norm: q = mx.fast.rms_norm(q, None, eps) * qk_scale_factor ; k = mx.fast.rms_norm(k, None, eps). Could we fuse scaling into rms_norm? rms_norm with weight None returns normalized x. Then multiply by scale factor. Could we incorporate scale into rms_norm? No.
+
+Another idea: gated attention output: out = out * mx.sigmoid(self.gate_proj(x)). That's two ops: gate_proj linear, sigmoid, multiply. Could fuse sigmoid with linear? Not easy.
+
+Maybe we can fuse the two RMSNorms in DecoderLayer: input_layernorm, post_attention_layernorm, pre_feedforward_layernorm, post_feedforward_layernorm. Each is CenteredRMSNorm which calls mx.fast.rms_norm. That's 4 per layer *52 =208 rms_norm calls per token. Each is elementwise. Could we fuse them? Hmm.
+
+Memory bandwidth bound: reading weights is main cost. Could we reduce number of matrix multiplications? The model has q_proj, k_proj, v_proj, o_proj, gate_proj per attention. That's 5 linear per layer. Could we fuse q/k/v projections into one? That would reduce memory reads? Actually reading weights still same total, but fewer kernel launches and less overhead of reading input multiple times? Might help.
+
+But we cannot change architecture? Must keep same output. Could fuse linear layers by concatenating weights? If we concatenate q,k,v weights into one matrix, then do one matmul, then split. That would reduce number of kernel launches (3 ->1) and reduce reading x three times? Actually each linear reads x and weight. If we fuse, we read x once. That reduces memory traffic for activations, not weights. Might help a bit.
+
+Decode is memory bandwidth bound on weights, not activations. So reducing kernel launches may help a bit.
+
+Another idea: The model uses nn.Linear for each projection. nn.Linear does matmul. Could we use fused QKV projection? That would reduce 3 matmuls to 1. That reduces weight reads? Actually total weight bytes read same, but fewer reads of input activations (x). Input activations are small (hidden_size * L). For decode L=1, so small. Might not matter.
+
+Better: The attention uses scaleless RMSNorm on Q and K after projection, before transpose. That's two rms_norm calls per layer. Could we pre-normalize? No.
+
+Maybe we can precompute 1+weight for CenteredRMSNorm to avoid addition each time. That's cheap.
+
+The prompt says directions more likely to matter: fewer separate large matrix multiplications or GPU kernel launches per layer, less memory traffic per token, fusing chains of elementwise operations into one kernel.
+
+Potential fusion: In Attention __call__, we have:
+q = self.q_proj(x).reshape...
+k = ...
+v = ...
+q = rms_norm(q) * scale
+k = rms_norm(k)
+q = transpose
+k = transpose
+v = transpose
+if use_rope: q = rope(q); k = rope(k)
+if cache: k,v = cache.update_and_fetch(k,v)
+out = scaled_dot_product_attention(...)
+out = transpose reshape
+out = out * sigmoid(gate_proj(x))
+return o_proj(out)
+
+We could fuse gate_proj(x) sigmoid multiplication with o_proj? Actually out * sigmoid(gate_proj(x)) then o_proj. Could we combine gate_proj and o_proj into one linear? No because sigmoid in between.
+
+Alternative: The model has 4 CenteredRMSNorm per layer. Each does mx.fast.rms_norm(x, 1.0 + weight, eps). Could we replace CenteredRMSNorm with a custom module that precomputes weight_plus_one after load, and then uses mx.fast.rms_norm with that precomputed array. That saves the addition 1.0 + weight each call. That's tiny.
+
+Maybe better: The embedding RMSNorm: h = mx.fast.rms_norm(h, None, embed_eps). That's one per forward. Could we fuse embedding lookup + rms_norm? Embedding lookup is gather, then rms_norm. Could we pre-normalize embedding weights? Since embedding is lookup, we could pre-apply RMSNorm to embedding matrix? RMSNorm is per token: norm(x) = x / sqrt(mean(x^2)+eps). That's not linear, can't precompute.
+
+Another idea: The model uses mx.fast.rms_norm for Q/K normalization. That's scaleless. Could we fuse the rms_norm with the projection? Since rms_norm is x / sqrt(mean(x^2)+eps). That's not linear.
+
+Maybe we can use MLX's ability to fuse elementwise ops. The chain: out = out * mx.sigmoid(self.gate_proj(x)). That's gate_proj linear then sigmoid then multiply. Could we fuse sigmoid with linear via custom kernel? Not allowed.
+
+Maybe we can reduce memory traffic by using 4-bit quantized weights already. Could we use mlx's quantized matmul? Already using.
+
+Potential optimization: The Attention does q = self.q_proj(x).reshape... Then rms_norm. Could we apply rms_norm before projection? No, changes output.
+
+Wait: The model uses scaleless RMSNorm on Q and K after projection. The rms_norm is over head_dim dimension. Could we fold the rms_norm into the projection weights? Since rms_norm is x / sqrt(mean(x^2)+eps). That's not linear, can't fold.
+
+Alternative: The model has 52 layers, each with 4 CenteredRMSNorm. Each CenteredRMSNorm does mx.fast.rms_norm(x, 1.0 + weight, eps). mx.fast.rms_norm is a fused kernel. The addition 1.0 + weight is done in Python before call? Actually 1.0 + self.weight creates a new array each call. That's allocation. Could we store weight_plus_one as a parameter to avoid allocation? That would reduce memory allocation overhead. Might be small.
+
+Better: Use post_load to transform weights: For CenteredRMSNorm, weight is stored as parameter. We can replace weight with 1+weight, and change __call__ to use weight directly without addition. That saves one addition per call and avoids creating temporary array. Could be small but maybe measurable.
+
+Also, the model has 4 CenteredRMSNorm per layer, each called twice? Actually input_layernorm, post_attention_layernorm, pre_feedforward_layernorm, post_feedforward_layernorm. That's 4 per layer. Each call does 1.0 + weight. That's 208 additions per token. Might be negligible.
+
+Another idea: The Attention's q and k rms_norm uses mx.fast.rms_norm(q, None, eps). That's a kernel. Could we fuse the scaling factor multiplication into rms_norm? Could we modify rms_norm to accept scale? Not.
+
+Maybe we can fuse the two RMSNorms in Attention into one kernel? No.
+
+Alternative: The model uses nn.Linear for gate_proj and o_proj separately. Could we fuse the sigmoid multiplication with o_proj by absorbing sigmoid into weight? No.
+
+Maybe we can reduce number of mask creations. In MuseGlimmerModel._masks, it creates masks per layer each forward. For decode, L=1, cache exists, mask creation may be expensive. The _masks method loops over layers and creates attention mask via create_attention_mask. For sliding_attention, it creates mask each time? It caches made dict per type. So only two masks created per forward: one for sliding, one for full. That's fine.
+
+Prompt processing is compute-bound, so we want to speed up prompt processing too. Fusing QKV projections could help compute-bound.
+
+Maybe best is to fuse QKV projections into single linear to reduce kernel launches. That would reduce memory traffic for reading x three times. For prompt processing with 1K-4K tokens, reading x multiple times may matter.
+
+We can in apply() patch Attention.__init__ to replace q_proj, k_proj, v_proj with a fused projection. But we need same output. We can create a new module that does one linear then splits.
+
+Simpler: In apply(), we can monkey-patch Attention.__call__ to fuse q/k/v projections into one matmul. That would change code path but output same.
+
+Implementation plan:
+
+Patch Attention class:
+
+Original __init__ creates self.q_proj, self.k_proj, self.v_proj, self.o_proj, self.gate_proj.
+
+We can in apply() replace __call__ with optimized version.
+
+But we need to keep same weights. We can create a fused weight matrix: W_qkv = concat([q_weight, k_weight, v_weight], axis=0). Then one matmul: x @ W_qkv.T? Actually nn.Linear does x @ W.T + b. So we can compute combined.
+
+Simpler: In __call__, instead of three separate linear calls, we can do:
+
+combined = mx.concatenate([self.q_proj.weight, self.k_proj.weight, self.v_proj.weight], axis=0) ??? Wait weight shape is (out_features, in_features). Linear does x @ W.T. So concatenating weights along out_features dimension yields a single matrix.
+
+We can precompute fused weight in post_load, and replace q_proj, k_proj, v_proj with a single fused linear module.
+
+But we need to keep original attributes for compatibility? Could replace q_proj with a custom object that has weight fused.
+
+Alternative simpler: Patch Attention.__call__ to compute q,k,v via one matmul using concatenated weights.
+
+We can in apply() define a new __call__ method that uses the existing projection weights but does one matmul.
+
+Implementation steps:
+
+In apply():
+from mlx_lm.models.muse_glimmer import Attention
+original_call = Attention.__call__
+
+Define new_call(self, x, mask=None, cache=None):
+... compute fused.
+
+But we need to access self.q_proj.weight etc. That's fine.
+
+We can compute:
+W = mx.concatenate([self.q_proj.weight, self.k_proj.weight, self.v_proj.weight], axis=0)
+# W shape (3*out, in)
+proj = x @ W.T  # shape (B,L,3*out)
+Then split.
+
+But this creates a temporary concatenated weight each call, which is expensive (weights are large). Better to pre-fuse weights in post_load.
+
+post_load(model): iterate over layers, for each Attention, fuse q/k/v weights into one weight matrix, store as self.qkv_weight, and replace q_proj, k_proj, v_proj with a dummy linear that uses fused weight? Could replace q_proj with a custom module that does matmul with slice.
+
+Simpler: In post_load, for each Attention, create a new weight matrix fused_qkv = mx.concatenate([att.q_proj.weight, att.k_proj.weight, att.v_proj.weight], axis=0). Then replace att.q_proj.weight with fused? Hmm.
+
+Alternative: Keep original q_proj, k_proj, v_proj but replace them with a single nn.Linear that has weight = fused. Then in __call__, we need to know how to split. Could modify __call__ to use fused linear.
+
+Maybe easiest: Patch Attention.__init__ to create fused projection. But __init__ already ran before weights load? apply() is called before weights load. So __init__ already happened? Actually model is instantiated before weights load? Typically model is created, then weights loaded. apply() called before weights load, so __init__ already done. We can patch class to change __init__ for future instances? The model already instantiated? Hmm.
+
+The model is instantiated in Model.__init__, which creates layers. That happens before apply()? The apply() is called before weights load, but after model instantiation? Possibly model is instantiated then apply called. Hard to know.
+
+Safer to patch __call__ method to use fused weights precomputed in post_load.
+
+Plan:
+
+In apply():
+Patch Attention class to have a new __call__ that uses fused weights if present.
+
+In post_load(model):
+For each layer's Attention, fuse q/k/v weights into one array, store as self._qkv_weight, and also store shapes to split. Then modify __call__ to use it.
+
+But we can just in post_load replace the three Linear modules with a single Linear module that has fused weight, and modify __call__ to use it.
+
+Simpler approach: Use post_load to replace each Attention's q_proj, k_proj, v_proj with a custom module that does fused matmul.
+
+Given constraints, maybe simplest is to fuse the elementwise operations in CenteredRMSNorm: precompute weight_plus_one.
+
+That is safe, exact, and reduces one addition per call. Might be enough? The example precomputing 1+weight gave only +0.08% decode. That's tiny.
+
+We need >0.1% improvement in every paired run. Might need more.
+
+Another idea: The model uses mx.fast.rms_norm for Q and K. That's two calls per layer. Could we fuse them into one call? Q and K have same shape, same eps. Could we stack them along head dimension? Maybe compute rms_norm on concatenated tensor, then split. That would reduce kernel launches from 2 to 1 per layer. That's 52 launches saved per token. Might be noticeable.
+
+Similarly, the four CenteredRMSNorm per layer each call mx.fast.rms_norm separately. Could we fuse them? Not easily.
+
+Q/K rms_norm fusion: In Attention.__call__, we have:
+q = self.q_proj(x).reshape(...)
+k = self.k_proj(x).reshape(...)
+v = ...
+q = mx.fast.rms_norm(q, None, eps) * scale
+k = mx.fast.rms_norm(k, None, eps)
+
+We could concatenate q and k along head dimension, do one rms_norm, then split. Since rms_norm is per last dimension, concatenating along head dimension changes shape. Actually q shape (B,L,n_heads,head_dim). k shape (B,L,n_kv_heads,head_dim). n_heads != n_kv_heads (32 vs 2). So can't concatenate directly.
+
+But we could compute rms_norm on both using same kernel? Not.
+
+Alternative: The model has gated attention output: out = out * sigmoid(gate_proj(x)). The gate_proj is linear, then sigmoid, then multiply. Could we fuse sigmoid with linear via using a custom activation? Not.
+
+Maybe we can fuse the two RMSNorms in DecoderLayer: input_layernorm and post_attention_layernorm etc. Could we combine residual addition with layernorm? No.
+
+Another angle: The model uses mx.fast.rms_norm for embeddings: h = mx.fast.rms_norm(h, None, embed_eps). That's one call per forward. Could we pre-normalize embedding matrix? Since embedding lookup is gather, then rms_norm per token. Could we precompute normalized embeddings? No, because rms_norm is per token vector, not per embedding vector? Actually each token's embedding vector is normalized individually. So we could pre-normalize each embedding vector in the embedding matrix at load time! Since embedding matrix is static, we can pre-apply RMSNorm to each embedding vector, store normalized embeddings, then at inference just lookup normalized embedding, skipping rms_norm. That would save one rms_norm per forward (once per prompt processing, not per token? Actually embedding is done once per sequence, not per token during decode? During decode, inputs is one token at a time, so embedding + rms_norm per token. So saving rms_norm per token could help decode.
+
+Similarly, the model has scaleless RMSNorm on Q and K, which is per token. Can't precompute.
+
+But embedding RMSNorm precomputation is promising! Since embedding matrix is static, we can pre-normalize each row using RMSNorm with eps. Then at inference, we just lookup normalized embedding, skipping rms_norm. That would save one rms_norm per token (decode) and per prompt token (prompt processing). That's a reduction in compute and memory traffic (embedding lookup still needed). Might be significant.
+
+Is it exact? RMSNorm is x / sqrt(mean(x^2)+eps). That's deterministic. Precomputing normalized embeddings yields same result as normalizing after lookup. Since embedding lookup is just selecting rows, normalization is per row, so precomputing is equivalent. Yes, exact.
+
+Similarly, the model has scaleless RMSNorm on embeddings: h = mx.fast.rms_norm(h, None, embed_eps). That's exactly per row normalization. So we can pre-normalize embedding weights.
+
+Implementation: In post_load, for model.model.embed_tokens.weight (shape vocab_size x hidden_size), compute normalized version: normalized = mx.fast.rms_norm(weight, None, eps). Then replace weight with normalized. Then in MuseGlimmerModel.__call__, we can skip the rms_norm step. But we need to modify code to skip it.
+
+We can either modify __call__ to not do rms_norm, or we can replace embed_tokens with a custom embedding that returns normalized vectors.
+
+Simpler: In post_load, replace embed_tokens.weight with normalized weights, and patch MuseGlimmerModel.__call__ to skip rms_norm (just use h directly). That would be exact.
+
+Similarly, could we pre-normalize the CenteredRMSNorm weights? No.
+
+Embedding pre-normalization seems good.
+
+Also, the model has final norm: self.norm = nn.RMSNorm(...). That's standard RMSNorm with weight? nn.RMSNorm has weight? In MLX, RMSNorm has weight parameter. Might be similar.
+
+But embedding pre-normalization saves one rms_norm per token. That's 52 layers of other ops, but embedding rms_norm is just one per token. Might be small.
+
+Another bigger win: The model uses CenteredRMSNorm with weight. Could we pre-add 1+weight to weight parameter, and change __call__ to use weight directly without addition? That's small.
+
+Maybe we can fuse the two RMSNorms in Attention Q and K by using a single kernel that processes both tensors together? Could we stack them into one tensor with batch dimension? Could concatenate along batch? Might be messy.
+
+Alternative: Use MLX's ability to fuse elementwise ops: The chain out = out * mx.sigmoid(self.gate_proj(x)). That's linear -> sigmoid -> multiply. Could we fuse sigmoid and multiply into one kernel? Not trivial.
+
+Maybe the biggest win is to reduce number of separate large matrix multiplications per layer. The Attention has 5 linears: q_proj, k_proj, v_proj, o_proj, gate_proj. That's 5 matmuls per layer. Could we fuse q/k/v into one, and fuse gate_proj with something? Gate_proj is used only for sigmoid multiplication, not for attention. Could we fuse gate_proj with o_proj? No.
+
+Fusing q/k/v into one reduces 3 matmuls to 1, saving 2 kernel launches per layer, and reducing reads of x 3 times to 1. For decode, x is small (1 token). So reading x is cheap. But kernel launch overhead may matter.
+
+The prompt says directions more likely to matter: fewer separate large matrix multiplications or GPU kernel launches per layer, less memory traffic per token, fusing chains of elementwise operations into one kernel.
+
+Fusing q/k/v is a good candidate.
+
+Let's attempt to fuse q/k/v projections.
+
+Implementation details:
+
+We need to keep output identical. So we need to ensure numerical equivalence.
+
+Original:
+q = self.q_proj(x)  # shape (B,L, n_heads*head_dim)
+q = reshape
+k = self.k_proj(x)
+v = ...
+
+Fused:
+combined_weight = concatenate([q_weight, k_weight, v_weight], axis=0)  # shape (3*out, in)
+combined_proj = x @ combined_weight.T  # shape (B,L,3*out)
+Then split into q,k,v.
+
+This is mathematically identical because linear is linear.
+
+We can precompute combined_weight in post_load, and store it as self._qkv_weight. Then modify Attention.__call__ to use it.
+
+We also need to keep self.q_proj, self.k_proj, self.v_proj for compatibility? Could keep them but not use.
+
+Simpler: In post_load, for each Attention, create a new nn.Linear with fused weight, replace q_proj with it, and modify __call__ to use it.
+
+Alternative: Patch Attention.__call__ in apply() to check if self._qkv_fused exists, and if so use it.
+
+Let's design:
+
+apply():
+Patch Attention class:
+original __init__? Might need to add attribute.
+
+Simpler: In apply(), we monkey-patch Attention.__call__ to a new implementation that uses fused weights if available.
+
+But we need to ensure that for layers where we haven't fused, it falls back.
+
+We can in post_load, for each Attention, create fused weight and store as self.qkv_weight_fused. Also store original weights? Could just replace q_proj.weight with fused? Hmm.
+
+Alternative approach: In post_load, we can replace the three Linear modules with a single Linear module that has fused weight, and modify __call__ to split.
+
+Let's design concrete steps:
+
+1. In apply():
+   - Import Attention from mlx_lm.models.muse_glimmer
+   - Save original __call__
+   - Define new __call__ that checks if hasattr(self, 'qkv_fused_weight'). If yes, use fused path, else fallback to original.
+
+But we need to ensure that the fused weight is created in post_load.
+
+2. In post_load(model):
+   - Iterate over model.model.layers (list of DecoderLayer)
+   - For each layer, get attn = layer.self_attn
+   - Fuse weights:
+     q_w = attn.q_proj.weight
+     k_w = attn.k_proj.weight
+     v_w = attn.v_proj.weight
+     fused = mx.concatenate([q_w, k_w, v_w], axis=0)
+     attn.qkv_fused_weight = fused
+     # Also store shapes to split
+     attn.qkv_out_dim = attn.q_proj.weight.shape[0]  # n_heads*head_dim
+     # We can keep original modules but not use them.
+
+   - Also, we might want to free original weights to save memory? Not needed.
+
+   - Then modify __call__ to use fused weight.
+
+But we also need to ensure that the fused weight is used in the new __call__.
+
+Implementation of new __call__:
+
+def fused_call(self, x, mask=None, cache=None):
+   B,L,_ = x.shape
+   # fused projection
+   # Compute combined projection
+   # We need to compute q,k,v in one matmul
+   # x shape (B,L,dim)
+   # fused weight shape (3*out, dim)
+   # proj = x @ fused_weight.T -> (B,L,3*out)
+   proj = x @ self.qkv_fused_weight.T
+   # split
+   out_dim = self.qkv_out_dim
+   q = proj[..., :out_dim]
+   k = proj[..., out_dim:2*out_dim]
+   v = proj[..., 2*out_dim:]
+   # reshape
+   q = q.reshape(B,L,self.n_heads,self.head_dim)
+   k = k.reshape(B,L,self.n_kv_heads,self.head_dim)
+   v = v.reshape(B,L,self.n_kv_heads,self.head_dim)
+   # rest same as original
+   ...
+
+But note: q_proj output dim = n_heads * head_dim = 32*128=4096
+k_proj output dim = n_kv_heads * head_dim = 2*128=256
+v_proj output dim = 256
+So total out = 4096+256+256=4608
+Splitting as above works.
+
+But we also need to ensure that the weight matrix orientation is correct. nn.Linear weight shape is (out_features, in_features). So x @ W.T is correct.
+
+Now, we also need to handle the case where self.qkv_fused_weight not set (fallback).
+
+Potential issue: The fused weight is created in post_load, but the original q_proj, k_proj, v_proj still exist. The new __call__ will use fused weight, ignoring original modules. That's fine.
+
+Now, does this change output? Mathematically identical, as long as we use same dtype and same order. Concatenation preserves order. Matmul is linear, so identical.
+
+Potential numerical difference due to fused matmul using one kernel vs three separate kernels. Might be slightly different rounding due to accumulation order. Since matmul is associative, but floating point addition order may differ. Could cause tiny differences. The rule allows tiny rounding differences if EXACT=False. But we could set EXACT=True? Might be risky. The problem says if EXACT=True, outputs must be bit-identical. If we change order of operations, might cause tiny differences due to floating point non-associativity. Might be okay? Safer to keep EXACT=True? Could we ensure bit-identical? Using same operations but fused may change order of summation. Might cause differences.
+
+Alternative: Keep three separate matmuls but fuse them into one kernel using MLX's ability to do multiple outputs? Might still be same order.
+
+Maybe we can keep exactness by using the same weights but performing three matmuls in one go using a single matmul with concatenated weights, which is mathematically equivalent but floating point may differ slightly due to different accumulation order? Actually the sum over input features is the same, just the order of adding contributions from different output neurons is different? No, the matmul computes each output neuron independently. Concatenating weights just groups them, the computation for each output neuron is same as before. The only difference is that the matrix multiplication is done in one call vs three calls. The underlying BLAS may process the matrix in different order, but the result for each output neuron should be identical because the computation is the same linear operation. However, the order of operations within the dot product is the same (sum over input features). The matrix is just larger, but the dot product for each output neuron is identical. So bit-identical should hold.
+
+Potential issue: The original code does q_proj(x).reshape... then rms_norm. If we fuse, we still reshape same.
+
+Now, we also have gate_proj. Could we fuse gate_proj with o_proj? No.
+
+Another optimization: The model has 4 CenteredRMSNorm per layer. Each does mx.fast.rms_norm(x, 1.0 + weight, eps). We could precompute weight_plus_one and store as weight, and change __call__ to use weight directly. That would save addition. Could combine with fused qkv.
+
+Maybe we can also fuse the two RMSNorms for Q and K? Could we compute rms_norm on concatenated q and k? Since they have different head counts, can't.
+
+Alternative: Pre-normalize embeddings as earlier. That is also exact and saves one rms_norm per token.
+
+Which gives more speedup? Fusing qkv reduces 2 matmuls per layer (3 ->1). That's 2*52=104 matmuls saved per token. That's significant. Embedding pre-normalization saves 1 rms_norm per token, less.
+
+Let's go with fusing qkv.
+
+Also, we could fuse the gate_proj sigmoid multiplication with o_proj? Could we precompute sigmoid? No.
+
+Another idea: The model uses mx.fast.rms_norm for Q and K. Could we fuse the rms_norm with the projection? No.
+
+Maybe we can also fuse the two RMSNorms in DecoderLayer: input_layernorm and post_attention_layernorm etc. Could we combine them? No.
+
+Let's implement variant with fused QKV.
+
+Also, we could precompute 1+weight for CenteredRMSNorm to avoid addition. Could combine both.
+
+Let's design variant file:
+
+NAME = "v1_fused_qkv"
+EXACT = True
+DESCRIPTION = ...
+
+apply():
+Patch Attention.__call__ to use fused weight if available.
+
+But we need to ensure that the patch is applied before weights load, so the __call__ method is replaced. That's fine.
+
+Implementation details:
+
+In apply():
+from mlx_lm.models.muse_glimmer import Attention
+original_call = Attention.__call__
+
+def new_call(self, x, mask=None, cache=None):
+   if not hasattr(self, 'qkv_fused_weight'):
+       return original_call(self, x, mask, cache)
+   B,L,_ = x.shape
+   # fused projection
+   proj = x @ self.qkv_fused_weight.T
+   out_dim_q = self.qkv_out_dim_q
+   out_dim_k = self.qkv_out_dim_k
+   # Actually we need to know sizes.
+   # Let's store sizes in attributes.
+
+Simplify: In post_load, we can replace the three Linear modules with a custom module that does fused projection. But patching __call__ is easier.
+
+Let's design attributes:
+
+In post_load, for each attn:
+   q_w = attn.q_proj.weight
+   k_w = attn.k_proj.weight
+   v_w = attn.v_proj.weight
+   fused = mx.concatenate([q_w, k_w, v_w], axis=0)
+   attn.qkv_fused_weight = fused
+   attn.qkv_fused_shape = (attn.q_proj.weight.shape[0], attn.k_proj.weight.shape[0], attn.v_proj.weight.shape[0])? Actually we need to know split points.
+
+We can store:
+attn._qkv_fused_weight = fused
+attn._qkv_split = [attn.q_proj.weight.shape[0], attn.k_proj.weight.shape[0], attn.v_proj.weight.shape[0]]
+
+Then in new_call, we can split using cumulative sum.
+
+Implementation of new_call:
+
+def new_call(self, x, mask=None, cache=None):
+   if not hasattr(self, '_qkv_fused_weight'):
+       return original_call(self, x, mask, cache)
+   B,L,_ = x.shape
+   proj = x @ self._qkv_fused_weight.T
+   # split
+   # compute sizes
+   q_out = self.n_heads * self.head_dim
+   k_out = self.n_kv_heads * self.head_dim
+   v_out = self.n_kv_heads * self.head_dim
+   # total
+   # split along last dim
+   q = proj[..., :q_out]
+   k = proj[..., q_out:q_out+k_out]
+   v = proj[..., q_out+k_out:q_out+k_out+v_out]
+   # continue as original
+   ...
+
+But we need to know n_heads, n_kv_heads, head_dim from self attributes, which are already set.
+
+So we don't need to store split sizes.
+
+Now, we also need to ensure that the original code does q = self.q_proj(x).reshape... So we need to replicate exactly.
+
+Let's write new_call step by step mirroring original:
+
+Original code:
+q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+# Scaleless QK-norm over head_dim; Q additionally scaled.
+q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+k = mx.fast.rms_norm(k, None, self.eps)
+
+q = q.transpose(0,2,1,3)
+k = k.transpose(0,2,1,3)
+v = v.transpose(0,2,1,3)
+
+...
+
+So we can compute proj, split, reshape.
+
+Implementation:
+
+proj = x @ self._qkv_fused_weight.T
+q = proj[..., :q_out].reshape(B,L,self.n_heads,self.head_dim)
+k = proj[..., q_out:q_out+k_out].reshape(B,L,self.n_kv_heads,self.head_dim)
+v = proj[..., q_out+k_out:].reshape(B,L,self.n_kv_heads,self.head_dim)
+
+Then continue.
+
+Potential issue: The original code does q_proj(x) then reshape. Our fused proj does x @ fused_weight.T, which yields same as concatenation of three separate projections. Since linear is linear, it's fine.
+
+Now, we also need to ensure that the weight matrix is in correct dtype. Should be same.
+
+Now, about memory: fused weight is extra copy, increasing memory. We have peak memory under 25GB. Weights alone 16GB. Fused weight adds extra ~ size of q+k+v weights = same as original, so memory doubles for those weights. That's bad. We would increase memory usage. We need peak memory under 25GB. Original weights 16GB. Adding duplicate weights would increase memory. Could be okay? q+k+v weights size: q: 6656*4096 ≈ 27M params, k: 6656*256≈1.7M, v same. Total ~30M params. At 4-bit, that's ~15 MB. Actually 30M *0.5 bytes =15 MB. Negligible. So fine.
+
+But we also keep original weights, so memory increases slightly. Acceptable.
+
+Alternative: We could replace original weights with fused and delete originals to save memory. Could do in post_load: after creating fused, delete original weights? Might be okay.
+
+Simpler: Keep original weights, just use fused for computation. Memory increase negligible.
+
+Now, we also might want to fuse the gate_proj with o_proj? No.
+
+Another optimization: The model uses CenteredRMSNorm with 1.0 + weight. We could precompute weight_plus_one and modify __call__ to use it directly, avoiding addition. That would be small.
+
+Maybe we can also fuse the two RMSNorms in Attention Q and K by using a single rms_norm on concatenated tensor with different head counts? Could pad? Not.
+
+Let's implement fused QKV.
+
+Also, we could pre-normalize embeddings to save rms_norm. That might be additional win. Could combine both.
+
+Let's try combine both: fuse QKV and pre-normalize embeddings.
+
+Pre-normalizing embeddings requires modifying MuseGlimmerModel.__call__ to skip rms_norm. We can patch that method in apply().
+
+Simpler: In post_load, we can replace embed_tokens.weight with normalized version, and patch MuseGlimmerModel.__call__ to skip rms_norm.
+
+We can patch MuseGlimmerModel.__call__ in apply() to check if embed_tokens is normalized.
+
+Alternative: In post_load, we can modify the embed_tokens weight to be normalized, and also modify the __call__ to not do rms_norm. Could just modify __call__ to skip rms_norm if a flag is set.
+
+Simpler: In apply(), patch MuseGlimmerModel.__call__ to skip embedding rms_norm if a flag is set. Then in post_load, set flag and pre-normalize weights.
+
+Let's design:
+
+apply():
+Patch MuseGlimmerModel.__call__ to check if self.embed_normalized flag.
+
+But we need to know when to skip. Could just always skip rms_norm and rely on pre-normalized weights. That would be exact if we pre-normalize weights.
+
+So we can patch MuseGlimmerModel.__call__ to remove the rms_norm line.
+
+Original __call__:
+h = self.embed_tokens(inputs)
+h = mx.fast.rms_norm(h, None, self.embed_eps)
+
+We can change to:
+h = self.embed_tokens(inputs)
+# skip rms_norm, assuming weights pre-normalized
+
+But we need to ensure that the weights are pre-normalized in post_load.
+
+Implementation steps:
+
+apply():
+- Patch Attention.__call__ to use fused QKV if available.
+- Patch MuseGlimmerModel.__call__ to skip embedding rms_norm if flag set.
+
+post_load(model):
+- For each Attention, create fused weight.
+- For MuseGlimmerModel, pre-normalize embed_tokens weight, and set flag.
+
+Let's design code.
+
+Variant file structure:
+
+NAME = "v1_fused_qkv_embed_norm"
+EXACT = True
+DESCRIPTION = ...
+
+def apply():
+   ...
+
+def post_load(model):
+   ...
+
+We need to import modules.
+
+Let's craft code.
+
+Potential pitfalls:
+
+- The model class hierarchy: Model contains model = MuseGlimmerModel. So model.model.embed_tokens.
+
+- The apply() is called before weights load. At that time, model is already instantiated? The apply() is called before weights load, but model instance may already exist. The patching of classes will affect future instances. Since model already instantiated, patching class methods will affect existing instance (since methods are looked up on class). So fine.
+
+- post_load receives model instance (the top-level Model). We need to iterate over layers.
+
+Implementation details for Attention patch:
+
+We need original __call__ reference.
+
+Let's write code:
+
+def apply():
+    from mlx_lm.models.muse_glimmer import Attention, MuseGlimmerModel
+    import mlx.core as mx
+
+    orig_attn_call = Attention.__call__
+    def fused_attn_call(self, x, mask=None, cache=None):
+        # if fused weight not present, fallback
+        if not hasattr(self, '_qkv_fused_weight'):
+            return orig_attn_call(self, x, mask, cache)
+        B, L, _ = x.shape
+        # fused projection
+        proj = x @ self._qkv_fused_weight.T
+        q_out = self.n_heads * self.head_dim
+        k_out = self.n_kv_heads * self.head_dim
+        # v_out same as k_out
+        q = proj[..., :q_out].reshape(B, L, self.n_heads, self.head_dim)
+        k = proj[..., q_out:q_out+k_out].reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = proj[..., q_out+k_out:q_out+2*k_out].reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        # Scaleless QK-norm
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0,2,1,3)
+        k = k.transpose(0,2,1,3)
+        v = v.transpose(0,2,1,3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        from mlx_lm.models.base import scaled_dot_product_attention
+        out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+        out = out.transpose(0,2,1,3).reshape(B, L, -1)
+
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    Attention.__call__ = fused_attn_call
+
+    # Patch MuseGlimmerModel to skip embedding rms_norm if pre-normalized
+    orig_muse_call = MuseGlimmerModel.__call__
+    def muse_call(self, inputs, cache=None):
+        # embedding
+        h = self.embed_tokens(inputs)
+        # if pre-normalized, skip rms_norm
+        if getattr(self, '_embed_normalized', False):
+            # h already normalized
+            pass
+        else:
+            h = mx.fast.rms_norm(h, None, self.embed_eps)
+        if cache is None:
+            cache = [None] * len(self.layers)
+        masks = self._masks(h, cache)
+        for layer, c, mask in zip(self.layers, cache, masks):
+            h = layer(h, mask, c)
+        return self.norm(h)
+    MuseGlimmerModel.__call__ = muse_call
+
+def post_load(model):
+    import mlx.core as mx
+    # Fuse QKV weights
+    for layer in model.model.layers:
+        attn = layer.self_attn
+        # create fused weight
+        q_w = attn.q_proj.weight
+        k_w = attn.k_proj.weight
+        v_w = attn.v_proj.weight
+        fused = mx.concatenate([q_w, k_w, v_w], axis=0)
+        attn._qkv_fused_weight = fused
+        # optional: keep original weights for fallback? fine
+
+    # Pre-normalize embeddings
+    embed = model.model.embed_tokens.weight
+    eps = model.model.embed_eps
+    # Normalize each row
+    # mx.fast.rms_norm expects input shape (..., dim). We can apply to weight matrix.
+    # weight shape (vocab, hidden)
+    normalized = mx.fast.rms_norm(embed, None, eps)
+    model.model.embed_tokens.weight = normalized
+    model.model._embed_normalized = True
+
+Potential issues:
+
+- In fused_attn_call, we used self.gate_proj(x) which is fine.
+
+- We didn't handle the case where self.use_rope is False, rope not present.
+
+- We used self.rope(q, offset=...). Original code uses self.rope(q, offset=offset). Good.
+
+- We imported scaled_dot_product_attention inside function to avoid import at top? Allowed imports only listed. scaled_dot_product_attention is from .base, allowed? Allowed imports: mlx.core, mlx.nn, mlx.utils, mlx_lm.models.muse_glimmer, mlx_lm.models.base, math, functools, typing, dataclasses. So we can import from mlx_lm.models.base.
+
+- The original Attention.__call__ also does if cache is not None: k, v = cache.update_and_fetch(k, v). We did that.
+
+- The original code does out = scaled_dot_product_attention(...). Good.
+
+- The original code does out = out.transpose... reshape. Good.
+
+- The original code does out = out * mx.sigmoid(self.gate_proj(x)). Good.
+
+- Return self.o_proj(out). Good.
+
+Potential numerical difference: In original, q_proj(x) is done, then reshape. In fused, we do x @ fused.T, which is equivalent to concatenation of three projections. Since matrix multiplication is linear, it's identical.
+
+But note: The original code does q = self.q_proj(x).reshape(...). The reshape happens after projection. Our fused proj splits then reshape. Same.
+
+Potential issue: The order of operations for k and v: we used proj[..., q_out+k_out:] for v. That's correct.
+
+Now, about embedding normalization: We replaced weight with normalized version. The original embed_tokens is nn.Embedding. Its weight is a parameter. Replacing weight with normalized version is fine. Then in muse_call, we skip rms_norm. That should be exact.
+
+But we also need to ensure that the embedding lookup uses the normalized weight. Since we replaced weight, it's fine.
+
+Potential issue: The embedding weight is used elsewhere? Possibly for tied embeddings? The model has tie_word_embeddings flag. If tie_word_embeddings is True, then in Model.__call__, out = self.model.embed_tokens.as_linear(out). That uses embed_tokens weight as linear. If we normalized embed weight, then the tied embedding will be different? Wait, tie_word_embeddings uses embed_tokens.as_linear, which uses the same weight matrix. If we normalized the embedding weight, then the tied output will be different from original. Hmm.
+
+The model has tie_word_embeddings flag. If True, the lm_head is tied to embed_tokens. In that case, normalizing embed weight changes the output of the model because the final linear projection uses the normalized embedding matrix instead of original. That would change output.
+
+We need to consider tie_word_embeddings. The ModelArgs has tie_word_embeddings default False. Might be False for this model. Could be True? Unknown. Safer to handle both.
+
+If tie_word_embeddings is True, then the embedding matrix is used both for input embedding and output projection. Normalizing it would change output projection, breaking exactness.
+
+We could avoid pre-normalizing embeddings if tie_word_embeddings is True. Or we could keep original weight for output projection but use normalized for input. That would require separate copy.
+
+Simpler: Skip embedding pre-normalization if tie_word_embeddings is True. Let's check ModelArgs default: tie_word_embeddings: bool = False. So likely False. But could be True in some configs. Safer to check.
+
+In post_load, we can check model.args.tie_word_embeddings. If True, skip embedding normalization.
+
+Also, the model may have tie_word_embeddings True for some runs. Safer to guard.
+
+Also, the embedding normalization we did uses mx.fast.rms_norm(embed, None, eps). The original code does h = mx.fast.rms_norm(h, None, embed_eps) where h is embedding lookup result. Since rms_norm is per row, applying to whole matrix is equivalent.
+
+Now, about CenteredRMSNorm precomputation: Could also do that for extra speed. Might be okay.
+
+Potential issue: The fused weight is created in post_load, but the Attention.__call__ is patched in apply(). The fused weight is set after patch, so fine.
+
+Memory: fused weight is extra copy. Could we delete original weights to save memory? Could set attn.q_proj.weight = None? Might break fallback. Could just keep.
+
+Potential issue: The fused weight is created using mx.concatenate, which allocates new array. That's fine.
+
+Potential issue: The original Attention.__init__ creates self.q_proj, self.k_proj, self.v_proj as nn.Linear. The weight attribute is a mx.array. Concatenating them creates new array.
+
+Now, about EXACT=True. We need bit-identical output. The fused matmul may produce slightly different results due to floating point order? The dot product for each output neuron is sum over input features. The order of summation over input features is the same (since matrix multiplication is done by BLAS, order may be different). However, the sum over input features is the same set of operations, just the order of addition may differ due to different blocking. Could cause tiny differences. Might still be within tolerance? EXACT=True requires bit-identical. Might fail.
+
+Alternative: Keep exactness by using the same operations but just reduce kernel launches by using a custom kernel? Hmm.
+
+Maybe we can fuse q/k/v projections by using a single Linear with concatenated weight, which is mathematically identical, but floating point rounding may differ due to different accumulation order? Actually the dot product for each output neuron is independent. The order of summation over input features is determined by the BLAS implementation, which may be same for both cases (since it's same matrix multiplication, just larger matrix). The larger matrix may have different blocking, but the dot product for each output neuron is the same as before. The sum over input features is the same, so result should be bit-identical if the BLAS uses same algorithm. However, the matrix is larger, so the BLAS may process it in different tiles, but the sum is associative, so rounding errors may differ slightly. Might be rare.
+
+Safer to keep exactness by using the original three projections but fusing them via a single matmul that is mathematically identical but may still have rounding differences. Might be acceptable? The problem says if EXACT=True, outputs must be bit-identical. Might be strict.
+
+Alternative approach: Keep exactness by using the same operations but reduce overhead by precomputing 1+weight for CenteredRMSNorm and pre-normalizing embeddings. Those are exact.
+
+Maybe we can also fuse the elementwise operations in CenteredRMSNorm: precompute weight_plus_one and store as weight, and change __call__ to use weight directly. That's exact.
+
+Also, we can precompute the embedding normalization.
+
+Maybe the biggest win is embedding pre-normalization, which is exact and reduces one rms_norm per token.
+
+Fusing QKV may risk non-bit-identical.
+
+Alternative safe optimization: Fuse the two RMSNorms for Q and K? Could we compute rms_norm for both in one kernel by stacking them? Could we compute rms_norm on concatenated tensor with padding? Might be exact.
+
+Another safe optimization: The model uses mx.fast.rms_norm for Q and K. Could we pre-scale the weights to incorporate the rms_norm? No.
+
+Maybe we can reduce memory traffic by using 4-bit quantization already.
+
+Another idea: The model has 4 CenteredRMSNorm per layer. Each does mx.fast.rms_norm(x, 1.0 + weight, eps). We can precompute weight_plus_one and store it as weight, and modify __call__ to use weight directly without addition. That's exact and saves one addition per call.
+
+Also, we can precompute the 1+weight for all CenteredRMSNorm instances in post_load, and modify CenteredRMSNorm.__call__ to use precomputed weight.
+
+That is safe and exact.
+
+Let's design a safer variant:
+
+- Precompute weight_plus_one for CenteredRMSNorm: In post_load, for each CenteredRMSNorm instance, compute weight_plus_one = 1.0 + weight, store as self.weight_plus_one, and modify __call__ to use it directly.
+
+- Pre-normalize embeddings (if tie_word_embeddings False).
+
+- Possibly fuse QKV but risk.
+
+Maybe we can also fuse the gate_proj sigmoid multiplication with o_proj? Could we precompute sigmoid? No.
+
+Another safe optimization: The model uses mx.fast.rms_norm for Q and K with weight None. Could we pre-normalize the projection weights? Since rms_norm is applied to the projection output, not input. Can't precompute.
+
+Maybe we can reduce number of mask creations. The _masks method creates masks per layer type. For decode, masks are same each step? The mask depends on cache offset? create_attention_mask may depend on cache? Might be constant. Could cache masks.
+
+The _masks method is called each forward. It loops over layers and creates mask if not made. The made dict caches per type. So masks are created once per forward. Could we cache masks across steps? The mask for sliding attention depends on cache offset? create_attention_mask(h, c, window_size). h is current hidden state, c is cache. The mask may depend on sequence length. For decode, length grows by 1 each step, so mask changes. Might be small.
+
+Alternative: The model uses RotatingKVCache for sliding attention. Might be expensive.
+
+Given time, maybe the safest and effective is to pre-normalize embeddings and precompute weight_plus_one for CenteredRMSNorm.
+
+Let's estimate speedup: Embedding rms_norm is one per token. RMSNorm is elementwise over hidden_size 6656. That's ~6656 ops per token. Compared to matmuls which are ~6656*4096 ≈27M ops per projection. So embedding rms_norm is negligible.
+
+CenteredRMSNorm precomputation saves addition of 1+weight (6656 ops) per norm. 4 norms per layer *52 =208 norms per token. Each norm does ~6656 ops. Adding 1 is negligible.
+
+Maybe we need bigger win.
+
+Alternative safe optimization: Fuse the QKV projections using a single matmul but ensure bit-identical by using the same order of operations? Could we perform three matmuls but using a single kernel launch via MLX's ability to do multiple outputs? Not easy.
+
+Maybe we can use MLX's `mx.concatenate` of weights and do one matmul, which is mathematically identical. The rounding difference may be negligible and still pass bit-identical check? Might fail.
+
+The problem says if EXACT=True, outputs must be bit-identical to original. So we must ensure bit-identical.
+
+Maybe we can keep exactness by using the same operations but just reduce overhead by caching the 1+weight.
+
+Another idea: The model uses `mx.fast.rms_norm` for Q and K. Could we fuse the scaling factor multiplication into the rms_norm? The rms_norm returns normalized x. Then we multiply by scale. Could we pre-scale the weight? No.
+
+Could we fuse the sigmoid and multiplication? The gate_proj output is multiplied with out. Could we fuse sigmoid into the linear weight by using a different activation? No.
+
+Maybe we can reduce memory traffic by using `mx.fast.rms_norm` with weight precomputed. Already.
+
+Another idea: The model has `self.norm = nn.RMSNorm(...)` at the end. That's a standard RMSNorm with weight. Could we pre-fuse it with the final logit softcapping and output multiplier? The final step is:
+out = out * output_multiplier
+cap = final_logit_softcapping
+return mx.tanh(out / cap) * cap
+
+That's elementwise ops. Could fuse into one kernel. Might save a few ops.
+
+But decode is memory bandwidth bound, not compute bound. So reducing elementwise ops won't help much.
+
+Maybe the best is to reduce number of large matrix multiplications by fusing QKV. Even if rounding differs slightly, maybe the test allows tiny rounding differences if EXACT=False. We could set EXACT=False to allow tiny rounding differences. The rule says if EXACT=False, log-probabilities may differ only by tiny rounding and generated tokens must still match for at least first 64 steps. That might be acceptable.
+
+The problem says we can set EXACT=True or False. If we set EXACT=False, we can allow tiny rounding differences. That might be safer for fused matmul.
+
+The requirement: Same output. If EXACT=True, outputs must be bit-identical. If EXACT=False, log-probabilities may differ only by tiny rounding and generated tokens must still match for at least first 64 steps.
+
+Fusing QKV may cause tiny rounding differences, but tokens may still match for first 64 steps. Might be okay.
+
+Given the risk, maybe we can set EXACT=False and fuse QKV.
+
+Also, we can pre-normalize embeddings, which is exact.
+
+Let's design variant with EXACT=False, fuse QKV, and pre-normalize embeddings.
+
+Also, we can precompute weight_plus_one for CenteredRMSNorm to save addition.
+
+Let's implement comprehensive variant:
+
+- In apply(), patch Attention.__call__ to use fused QKV.
+- Patch MuseGlimmerModel.__call__ to skip embedding rms_norm if pre-normalized.
+- Patch CenteredRMSNorm.__call__ to use precomputed weight_plus_one.
+
+In post_load:
+- For each Attention, create fused weight.
+- For each CenteredRMSNorm, precompute weight_plus_one.
+- For MuseGlimmerModel, pre-normalize embeddings.
+
+Let's implement.
+
+Implementation details for CenteredRMSNorm:
+
+Original class:
+class CenteredRMSNorm(nn.Module):
+    def __init__(self, dim, eps):
+        self.weight = mx.zeros((dim,))
+        self.eps = eps
+    def __call__(self, x):
+        return mx.fast.rms_norm(x, 1.0 + self.weight, self.eps)
+
+We can in post_load, for each CenteredRMSNorm instance, compute weight_plus_one = 1.0 + weight, store as self.weight_plus_one, and modify __call__ to use it.
+
+Simpler: In apply(), patch CenteredRMSNorm.__call__ to check if hasattr(self, 'weight_plus_one') and use it.
+
+Let's design:
+
+apply():
+- Patch CenteredRMSNorm.__call__:
+  def new_call(self, x):
+    w = getattr(self, 'weight_plus_one', 1.0 + self.weight)
+    return mx.fast.rms_norm(x, w, self.eps)
+
+That's fine.
+
+Now, post_load:
+- For each CenteredRMSNorm instance in model, compute weight_plus_one and store.
+
+We need to find all CenteredRMSNorm instances. They are in DecoderLayer: input_lay

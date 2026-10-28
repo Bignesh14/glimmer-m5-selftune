@@ -1,0 +1,48 @@
+ to=self<|message|>The referee ran your file. Result... AttributeError: 'Model' object has no attribute 'named_children'
+
+Fix problem. Need use correct traversal. mlx.nn Module has named_children? Actually maybe .children? Let's check. In mlx nn layers base, named_children exists? Might be .named_modules? Hmm.
+
+Simpler: avoid post_load traversal. We already fused in apply via class replacement. post_load can be no-op.
+
+We need complete corrected file.
+
+We can just make post_load pass.
+
+Also apply patch simpler.
+
+Let's produce corrected variant file.
+
+<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_fuse_centered_rms — pre-fuse CenteredRMSNorm scale."""
+
+NAME = "v1_fuse_centered_rms"
+EXACT = True
+DESCRIPTION = "Replace CenteredRMSNorm with a fused version that precomputes 1+weight, removing per-token add."
+
+def apply():
+    from mlx_lm.models import muse_glimmer as mg
+    import mlx.core as mx
+    import mlx.nn as nn
+
+    class FusedCenteredRMSNorm(nn.Module):
+        def __init__(self, dim: int, eps: float):
+            super().__init__()
+            self.weight = mx.zeros((dim,))
+            self.eps = eps
+            self._scale = None
+
+        def __call__(self, x: mx.array) -> mx.array:
+            if self._scale is None:
+                # fuse 1 + weight once, before first use
+                self._scale = 1.0 + self.weight
+            return mx.fast.rms_norm(x, self._scale, self.eps)
+
+    # Replace the class used during construction
+    mg.CenteredRMSNorm = FusedCenteredRMSNorm
+
+
+def post_load(model):
+    # No weight transformation needed; the fused class already avoids per-token adds.
+    # Keeping post_load as a no-op preserves exact output.
+    return model
+```

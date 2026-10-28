@@ -1,0 +1,49 @@
+ to=self<|message|>The safety gate rejected your file before running it:
+- dunder attribute not allowed: __dict__
+Fix this and reply with COMPLETE corrected file in ONE ```python block.
+
+We need avoid __dict__ usage. Use getattr etc. Can't use __dict__. Need walk without __dict__. Use mlx.nn.Module attributes? Could iterate via dir? Simpler: just patch __call__ to compute scale lazily once using a flag. Avoid __dict__.
+
+We can store scale in attribute _scale, but accessing __dict__ is prohibited? The rejection is about using __dict__ in code. So remove that.
+
+We can just patch __call__ to compute scale once using a cached attribute set on first call. No need to walk.
+
+Simpler: modify CenteredRMSNorm.__call__ to compute scale once and store in self._scale. That's allowed? Accessing self._scale is fine. No __dict__.
+
+We need post_load maybe not needed. Could just patch __call__ to compute scale on first call and reuse.
+
+Implement apply: replace __call__ with version that caches scale in self._scale.
+
+No __dict__ usage.
+
+Let's produce file.
+
+<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_centered_scale_cache — cache CenteredRMSNorm scale to avoid per-token addition."""
+
+NAME = "v1_centered_scale_cache"
+EXACT = True
+DESCRIPTION = "Cache 1+weight for CenteredRMSNorm to remove per-token addition overhead."
+
+def apply():
+    """Patch CenteredRMSNorm to use a cached scale."""
+    import mlx.core as mx
+    from mlx_lm.models.muse_glimmer import CenteredRMSNorm
+
+    orig_call = CenteredRMSNorm.__call__
+
+    def cached_call(self, x: mx.array) -> mx.array:
+        # Lazily compute and cache the scale 1 + weight once per instance
+        if not hasattr(self, "_scale"):
+            scale = 1.0 + self.weight
+            # store as a plain attribute, no dunder access
+            self._scale = scale
+        return mx.fast.rms_norm(x, self._scale, self.eps)
+
+    CenteredRMSNorm.__call__ = cached_call
+
+
+def post_load(model):
+    """No weight transformation needed; scale is cached lazily on first use."""
+    pass
+```

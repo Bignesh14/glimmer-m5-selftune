@@ -1,0 +1,124 @@
+ to=self<|message|>You are Muse Glimmer... make text generation faster without changing output.
+
+We need variant file. Probably fuse operations? Could replace CenteredRMSNorm with custom? Or precompute 1+weight? Since weight is zero init? Actually weight is zeros, so 1+weight =1. So CenteredRMSNorm is just rms_norm with weight 1. Could replace with mx.fast.rms_norm directly to avoid weight addition? Might be faster.
+
+Also gated attention: out * sigmoid(gate_proj(x)). Could fuse sigmoid? Maybe compute gate_proj once? Hmm.
+
+Simplest: replace CenteredRMSNorm __call__ to use mx.fast.rms_norm with scale 1.0 directly, avoiding addition of weight (which is zero). But weight may be non-zero after loading. Still 1+weight is constant per layer. Could precompute scale = 1+weight and store as array, then use mx.fast.rms_norm with that scale. Currently it does 1.0 + self.weight each call, which is addition. Could precompute.
+
+Also Attention does rms_norm twice per call. Could fuse?
+
+Maybe easiest: in apply(), patch CenteredRMSNorm.__call__ to cache scale.
+
+Also embed RMSNorm: h = mx.fast.rms_norm(h, None, self.embed_eps). Could be fine.
+
+Let's implement variant that precomputes centered scale in post_load: for each CenteredRMSNorm, compute scale = 1+weight, replace weight with scale? Or monkey patch __call__ to use precomputed.
+
+Simpler: in apply, replace CenteredRMSNorm.__call__ with version that uses precomputed scale stored as attribute.
+
+We can in post_load iterate model parameters? Might be heavy.
+
+Alternative: patch CenteredRMSNorm.__init__ to store scale as mx.array of 1+weight, and __call__ uses it.
+
+Since weight is loaded after post_load? post_load called after weights load. So we can compute scale then.
+
+Let's do: in post_load, traverse model, for each CenteredRMSNorm module, compute scale = 1 + weight, replace weight with scale? But __call__ uses 1.0 + self.weight. Could just set self.weight = 1+weight? Then 1.0+self.weight becomes 1+weight+1? No.
+
+Better patch __call__ to use cached scale.
+
+Simpler: in apply, replace CenteredRMSNorm class with new class where __call__ uses precomputed scale attribute set in __init__? But weight not known at init.
+
+Alternative: monkey patch __call__ to compute scale once lazily.
+
+Given constraints, easiest: replace CenteredRMSNorm.__call__ with version that does mx.fast.rms_norm(x, 1.0 + self.weight, self.eps) but weight is a mx array, addition is cheap? Maybe overhead.
+
+Maybe fuse gate_proj sigmoid multiplication with o_proj? Could compute gate_proj(x) once? Already.
+
+I think precomputing scale is fine.
+
+Implement variant:
+
+NAME = "v1_centered_scale_cache"
+EXACT = True
+DESCRIPTION...
+
+def apply():
+    from mlx_lm.models.muse_glimmer import CenteredRMSNorm
+    orig_call = CenteredRMSNorm.__call__
+    def new_call(self, x):
+        scale = self._scale if hasattr(self,'_scale') else 1.0 + self.weight
+        return mx.fast.rms_norm(x, scale, self.eps)
+    CenteredRMSNorm.__call__ = new_call
+
+def post_load(model):
+    # precompute scale for all CenteredRMSNorm modules
+    def walk(m):
+        for child in m.children():
+            if isinstance(child, CenteredRMSNorm):
+                # compute scale
+                scale = 1.0 + child.weight
+                child._scale = scale
+            walk(child)
+    walk(model)
+
+But children iteration? mlx.nn modules have .children? Might be .parameters? Simpler: traverse via model.layers etc.
+
+Alternative just compute on first call lazily.
+
+Maybe just patch __call__ to use 1+weight but weight is already loaded, addition is cheap.
+
+Maybe better: replace mx.fast.rms_norm with fused? Hmm.
+
+I'll deliver variant that caches scale.
+
+<|eom|><|start|>assistant to=user<|message|>The centered RMSNorm adds `1.0 + self.weight` on every forward pass. The scale is constant after loading, so it can be pre-computed once and reused. Caching the scale removes the per-token addition and the repeated `1.0 + weight` construction.
+
+```python
+"""v1_centered_scale_cache — cache CenteredRMSNorm scale to avoid per-token addition."""
+
+NAME = "v1_centered_scale_cache"
+EXACT = True
+DESCRIPTION = "Cache 1+weight for CenteredRMSNorm to remove per-token addition overhead."
+
+def apply():
+    """Patch CenteredRMSNorm to use a cached scale."""
+    import mlx.core as mx
+    from mlx_lm.models.muse_glimmer import CenteredRMSNorm
+
+    orig_call = CenteredRMSNorm.__call__
+
+    def cached_call(self, x: mx.array) -> mx.array:
+        # Use pre-computed scale if available, otherwise fall back to original
+        scale = getattr(self, "_scale", 1.0 + self.weight)
+        return mx.fast.rms_norm(x, scale, self.eps)
+
+    CenteredRMSNorm.__call__ = cached_call
+
+
+def post_load(model):
+    """Pre-compute 1+weight for every CenteredRMSNorm in the model."""
+    import mlx.core as mx
+    from mlx_lm.models.muse_glimmer import CenteredRMSNorm
+
+    def walk(module):
+        # Recursively walk nn.Module tree
+        for name, child in module.__dict__.items():
+            if isinstance(child, CenteredRMSNorm):
+                # weight is already loaded, compute scale once
+                scale = 1.0 + child.weight
+                child._scale = scale
+            # recurse into sub-modules
+            if hasattr(child, "__dict__"):
+                walk(child)
+        # also handle list of layers
+        for attr_name in ["layers"]:
+            if hasattr(module, attr_name):
+                lst = getattr(module, attr_name)
+                if isinstance(lst, list):
+                    for sub in lst:
+                        walk(sub)
+
+    walk(model)
+    # Ensure the model itself is walked
+    walk(model.model)
+```

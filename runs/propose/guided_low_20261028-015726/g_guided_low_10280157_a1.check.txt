@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 173, in <module>
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 159, in main
+    vmod.post_load(model)                             # e.g. precompute / merge weights
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_guided_low_10280157_a1.py", line 71, in post_load
+    fuse_norm(model)
+    ~~~~~~~~~^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_guided_low_10280157_a1.py", line 62, in fuse_norm
+    for name, child in mod.named_children():
+                       ^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx/nn/layers/base.py", line 103, in __getattr__
+    super(Module, self).__getattribute__(key)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+AttributeError: 'Model' object has no attribute 'named_children'

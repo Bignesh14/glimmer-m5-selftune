@@ -1,0 +1,11 @@
+time,run_id,arm,strength,attempt,variant,gen_tokens,reasoning_tokens,gen_seconds,code_found,safety,verdict,notes
+2026-10-28 00:44:24,unguided_low_20261028-004423,unguided,low,1,g_unguided_low_10280044_a1,1324,878,55.2,True,REJECTED,-,dunder attribute not allowed: __dict__
+2026-10-28 00:45:23,unguided_low_20261028-004423,unguided,low,2,g_unguided_low_10280045_a2,482,245,23.4,True,ok,PASS (bit-exact),
+2026-10-28 01:16:04,unguided_high_20261028-011603,unguided,high,1,g_unguided_high_10280116_a1,12000,12000,472.3,False,-,NO CODE,hit max tokens
+2026-10-28 01:24:00,unguided_high_20261028-011603,unguided,high,2,g_unguided_high_10280124_a2,10755,10208,423.3,True,ok,CRASHED,
+2026-10-28 01:31:12,unguided_high_20261028-011603,unguided,high,3,g_unguided_high_10280131_a3,3316,2797,133.5,True,ok,CRASHED,
+2026-10-28 01:33:35,guided_high_20261028-013335,guided,high,1,g_guided_high_10280133_a1,12000,12000,472.8,False,-,NO CODE,hit max tokens
+2026-10-28 01:41:32,guided_high_20261028-013335,guided,high,2,g_guided_high_10280141_a2,12000,12000,473.0,False,-,NO CODE,hit max tokens
+2026-10-28 01:49:29,guided_high_20261028-013335,guided,high,3,g_guided_high_10280149_a3,12000,12000,473.1,False,-,NO CODE,hit max tokens
+2026-10-28 01:57:27,guided_low_20261028-015726,guided,low,1,g_guided_low_10280157_a1,1687,875,69.6,True,ok,CRASHED,
+2026-10-28 01:58:42,guided_low_20261028-015726,guided,low,2,g_guided_low_10280158_a2,403,122,21.3,True,ok,PASS (bit-exact),
