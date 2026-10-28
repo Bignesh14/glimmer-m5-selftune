@@ -1,0 +1,258 @@
+session 20261028-172636: A=v0_original  B=g_guided_medium_10281717_r1  pairs=6 (+1 warm-up pair)
+--- pair 0 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 280.0 tok/s, gen 800 @ 26.602 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 807.9 tok/s, gen 8 @ 29.935 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.2 tok/s, gen 8 @ 29.653 tok/s, peak 16.60 GB
+--- pair 0 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.2 tok/s, gen 800 @ 26.657 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.4 tok/s, gen 8 @ 29.990 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.2 tok/s, gen 8 @ 29.701 tok/s, peak 16.60 GB
+--- pair 1 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.67 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.1 tok/s, gen 800 @ 26.652 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.4 tok/s, gen 8 @ 30.010 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 814.6 tok/s, gen 8 @ 29.686 tok/s, peak 16.60 GB
+--- pair 1 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.612 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.2 tok/s, gen 8 @ 29.917 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.3 tok/s, gen 8 @ 29.674 tok/s, peak 16.60 GB
+--- pair 2 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 286.5 tok/s, gen 800 @ 26.603 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 810.1 tok/s, gen 8 @ 29.860 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.5 tok/s, gen 8 @ 29.652 tok/s, peak 16.60 GB
+--- pair 2 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.21 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 291.9 tok/s, gen 800 @ 26.654 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 811.0 tok/s, gen 8 @ 29.976 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 814.8 tok/s, gen 8 @ 29.697 tok/s, peak 16.60 GB
+--- pair 3 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.0 tok/s, gen 800 @ 26.650 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.3 tok/s, gen 8 @ 29.992 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.0 tok/s, gen 8 @ 29.607 tok/s, peak 16.60 GB
+--- pair 3 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.3 tok/s, gen 800 @ 26.595 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.2 tok/s, gen 8 @ 29.960 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 813.5 tok/s, gen 8 @ 29.648 tok/s, peak 16.60 GB
+--- pair 4 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.3 tok/s, gen 800 @ 26.596 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.5 tok/s, gen 8 @ 29.930 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.6 tok/s, gen 8 @ 29.626 tok/s, peak 16.60 GB
+--- pair 4 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.04 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 283.4 tok/s, gen 800 @ 26.644 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 809.7 tok/s, gen 8 @ 29.955 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.6 tok/s, gen 8 @ 29.682 tok/s, peak 16.60 GB
+--- pair 5 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.3 tok/s, gen 800 @ 26.646 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 809.8 tok/s, gen 8 @ 29.965 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 814.8 tok/s, gen 8 @ 29.679 tok/s, peak 16.60 GB
+--- pair 5 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.1 tok/s, gen 800 @ 26.586 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.5 tok/s, gen 8 @ 29.925 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.4 tok/s, gen 8 @ 29.652 tok/s, peak 16.60 GB
+--- pair 6 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 286.7 tok/s, gen 800 @ 26.604 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 808.7 tok/s, gen 8 @ 29.931 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.3 tok/s, gen 8 @ 29.674 tok/s, peak 16.60 GB
+--- pair 6 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 291.8 tok/s, gen 800 @ 26.628 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.5 tok/s, gen 8 @ 29.957 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.1 tok/s, gen 8 @ 29.697 tok/s, peak 16.60 GB
+done. Analyse with:  python bench/compare.py --session 20261028-172636
+session 20261028-173950: A=v0_original  B=g_guided_medium_10281717_r1  pairs=6 (+1 warm-up pair)
+--- pair 0 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 280.3 tok/s, gen 800 @ 26.609 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 807.8 tok/s, gen 8 @ 29.953 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.3 tok/s, gen 8 @ 29.659 tok/s, peak 16.60 GB
+--- pair 0 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.04 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.0 tok/s, gen 800 @ 26.660 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.5 tok/s, gen 8 @ 30.008 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.4 tok/s, gen 8 @ 29.687 tok/s, peak 16.60 GB
+--- pair 1 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.06 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.7 tok/s, gen 800 @ 26.645 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 811.3 tok/s, gen 8 @ 29.948 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.4 tok/s, gen 8 @ 29.693 tok/s, peak 16.60 GB
+--- pair 1 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.602 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 808.6 tok/s, gen 8 @ 29.941 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.2 tok/s, gen 8 @ 29.635 tok/s, peak 16.60 GB
+--- pair 2 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 286.8 tok/s, gen 800 @ 26.609 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.7 tok/s, gen 8 @ 29.914 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.5 tok/s, gen 8 @ 29.660 tok/s, peak 16.60 GB
+--- pair 2 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.04 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 283.8 tok/s, gen 800 @ 26.648 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.5 tok/s, gen 8 @ 29.951 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 814.9 tok/s, gen 8 @ 29.631 tok/s, peak 16.60 GB
+--- pair 3 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.67 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 291.8 tok/s, gen 800 @ 26.651 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.7 tok/s, gen 8 @ 29.990 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.3 tok/s, gen 8 @ 29.680 tok/s, peak 16.60 GB
+--- pair 3 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.1 tok/s, gen 800 @ 26.588 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.1 tok/s, gen 8 @ 29.931 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.7 tok/s, gen 8 @ 29.621 tok/s, peak 16.60 GB
+--- pair 4 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.605 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.0 tok/s, gen 8 @ 29.949 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.1 tok/s, gen 8 @ 29.645 tok/s, peak 16.60 GB
+--- pair 4 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.04 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.0 tok/s, gen 800 @ 26.646 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.6 tok/s, gen 8 @ 29.994 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.2 tok/s, gen 8 @ 29.669 tok/s, peak 16.60 GB
+--- pair 5 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.0 tok/s, gen 800 @ 26.652 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.8 tok/s, gen 8 @ 29.996 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.2 tok/s, gen 8 @ 29.671 tok/s, peak 16.60 GB
+--- pair 5 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.1 tok/s, gen 800 @ 26.591 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.6 tok/s, gen 8 @ 29.869 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.2 tok/s, gen 8 @ 29.655 tok/s, peak 16.60 GB
+--- pair 6 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.609 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.3 tok/s, gen 8 @ 29.923 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.5 tok/s, gen 8 @ 29.670 tok/s, peak 16.60 GB
+--- pair 6 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.04 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 280.6 tok/s, gen 800 @ 26.639 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 809.7 tok/s, gen 8 @ 29.980 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.2 tok/s, gen 8 @ 29.651 tok/s, peak 16.60 GB
+done. Analyse with:  python bench/compare.py --session 20261028-173950
+session 20261028-175049: A=v0_original  B=g_guided_medium_10281717_r1  pairs=6 (+1 warm-up pair)
+--- pair 0 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 279.4 tok/s, gen 800 @ 26.606 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 808.0 tok/s, gen 8 @ 29.936 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.0 tok/s, gen 8 @ 29.606 tok/s, peak 16.60 GB
+--- pair 0 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.1 tok/s, gen 800 @ 26.642 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.5 tok/s, gen 8 @ 29.978 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 814.5 tok/s, gen 8 @ 29.694 tok/s, peak 16.60 GB
+--- pair 1 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 291.8 tok/s, gen 800 @ 26.651 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.5 tok/s, gen 8 @ 29.991 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.2 tok/s, gen 8 @ 29.678 tok/s, peak 16.60 GB
+--- pair 1 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 286.6 tok/s, gen 800 @ 26.614 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.9 tok/s, gen 8 @ 29.921 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.1 tok/s, gen 8 @ 29.637 tok/s, peak 16.60 GB
+--- pair 2 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.614 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.4 tok/s, gen 8 @ 29.929 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.6 tok/s, gen 8 @ 29.671 tok/s, peak 16.60 GB
+--- pair 2 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.3 tok/s, gen 800 @ 26.647 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.3 tok/s, gen 8 @ 30.005 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 814.7 tok/s, gen 8 @ 29.559 tok/s, peak 16.60 GB
+--- pair 3 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.67 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.9 tok/s, gen 800 @ 26.652 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 811.1 tok/s, gen 8 @ 29.968 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 814.7 tok/s, gen 8 @ 29.688 tok/s, peak 16.60 GB
+--- pair 3 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.3 tok/s, gen 800 @ 26.595 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.3 tok/s, gen 8 @ 29.907 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.6 tok/s, gen 8 @ 29.616 tok/s, peak 16.60 GB
+--- pair 4 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.4 tok/s, gen 800 @ 26.604 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.0 tok/s, gen 8 @ 29.882 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.2 tok/s, gen 8 @ 29.662 tok/s, peak 16.60 GB
+--- pair 4 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.04 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.1 tok/s, gen 800 @ 26.651 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.4 tok/s, gen 8 @ 29.953 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.3 tok/s, gen 8 @ 29.658 tok/s, peak 16.60 GB
+--- pair 5 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.15 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.1 tok/s, gen 800 @ 26.647 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.1 tok/s, gen 8 @ 29.969 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.1 tok/s, gen 8 @ 29.682 tok/s, peak 16.60 GB
+--- pair 5 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.596 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.5 tok/s, gen 8 @ 29.918 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 813.8 tok/s, gen 8 @ 29.641 tok/s, peak 16.60 GB
+--- pair 6 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original peak incl. loading + first pass: 15.83 GB
+v0_original decode: prompt 73 tok @ 287.0 tok/s, gen 800 @ 26.601 tok/s, peak 15.80 GB
+v0_original prefill_1k: prompt 1080 tok @ 809.4 tok/s, gen 8 @ 29.919 tok/s, peak 16.33 GB
+v0_original prefill_4k: prompt 4152 tok @ 814.5 tok/s, gen 8 @ 29.629 tok/s, peak 16.60 GB
+--- pair 6 slot B: g_guided_medium_10281717_r1
+variant g_guided_medium_10281717_r1 (c6fe7f191cf1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+g_guided_medium_10281717_r1 peak incl. loading + first pass: 16.04 GB
+g_guided_medium_10281717_r1 decode: prompt 73 tok @ 292.1 tok/s, gen 800 @ 26.646 tok/s, peak 15.84 GB
+g_guided_medium_10281717_r1 prefill_1k: prompt 1080 tok @ 810.1 tok/s, gen 8 @ 29.968 tok/s, peak 16.33 GB
+g_guided_medium_10281717_r1 prefill_4k: prompt 4152 tok @ 815.3 tok/s, gen 8 @ 29.684 tok/s, peak 16.60 GB
+done. Analyse with:  python bench/compare.py --session 20261028-175049
