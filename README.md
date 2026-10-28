@@ -8,9 +8,11 @@ Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Indie track, solo. 
 interleaved, replicated A/B timing races. Glimmer then gets its own measurements back and tries again (closed loop).
 
 Everything in this repository was built during the hackathon (first commit: Oct 27, 2026).
-**Pre-existing (before kickoff):** downloading the model, installing MLX, and the four test-prompt text files used by
-the bench (repeated technical paragraphs, kept out of git). The stock model was re-measured inside this repo during
-the event and is labelled `v0_original` everywhere.
+**Pre-existing (before kickoff):** downloading the model, installing MLX, the four test-prompt text files used by
+the bench (repeated technical paragraphs, kept out of git), and our own earlier speed measurements of the stock model
+(not in this repo). Their headline figures (≈26.6 tok/s decode, ≈87 % of memory bandwidth, ≈810 tok/s prompt
+processing) are quoted as context in `docs/human_audit.md` and in the guided prompt given to Glimmer. The stock model
+was re-measured inside this repo during the event and is labelled `v0_original` everywhere.
 
 ## Setup and provenance
 
