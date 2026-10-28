@@ -1,0 +1,420 @@
+ to=self<|message|>You are Muse Glimmer. Below is exact Python source code...
+Task: make text generation faster WITHOUT changing what you output.
+
+We need variant file. Must not change output. Same output bit-identical if EXACT True? We can set EXACT False? Rules: If EXACT=True outputs must be bit-identical. If EXACT=False log-probs may differ only tiny rounding and generated tokens must still match for at least first 64 steps.
+
+We need speed up. Options: fuse operations, reduce overhead. MLX lazy evaluation. Possibly pre-evaluate constants? Or fuse RMSNorm? The model uses mx.fast.rms_norm many times. Could we replace CenteredRMSNorm with custom that uses fast? Already uses fast.rms_norm.
+
+Potential speed up: avoid creating masks each time? _masks creates mask per layer each call. Could cache masks? Mask depends on h shape and cache offset. For generation, L=1 each step, cache grows. Mask creation may be expensive.
+
+Alternative: fuse gate_proj sigmoid multiplication? Could precompute? No.
+
+QuantizedLinear: its __call__ uses mx.quantized_matmul. Could we replace with custom that uses dequantize once? No.
+
+Maybe we can fuse the two RMSNorms in Attention: q and k rms_norm. Could combine? Hmm.
+
+Another idea: The model uses nn.Linear for q_proj etc, but they are replaced by QuantizedLinear. The __call__ of Attention does q_proj(x).reshape... Could we avoid reshape transpose overhead? Maybe fuse reshape with matmul? Hard.
+
+Maybe we can precompute constants: qk_scale_factor multiplication can be folded into weight? Since q = rms_norm(q) * scale_factor. rms_norm is per-token normalization, can't fold.
+
+Alternative: Use mlx.core.eval to force evaluation earlier to reduce lazy overhead? Might speed up.
+
+Simpler: In apply(), replace Attention.__call__ to avoid creating intermediate arrays? Could use in-place? Might be tricky.
+
+Another angle: The model has CenteredRMSNorm which does mx.fast.rms_norm(x, 1.0 + self.weight, eps). weight is zeros. So 1+weight =1. So it's just rms_norm with weight 1. Could replace with mx.fast.rms_norm(x,1,eps) directly, avoiding addition. That's minor.
+
+Better: The embed_tokens followed by rms_norm. Could fuse embedding lookup + rms_norm? Could pre-normalize embedding matrix? Since rms_norm is applied to embeddings per token: h = rms_norm(embedding). Since embedding is lookup, rms_norm is per token vector normalization: norm = x / sqrt(mean(x^2)+eps). That's not linear, can't precompute.
+
+Maybe we can cache masks: In MuseGlimmerModel._masks, it creates mask each call using create_attention_mask. For generation with cache, mask is same shape each step? For sliding window, mask depends on cache size. Could compute once per step? Might be overhead.
+
+Alternative speed up: Reduce number of mx.fast.rms_norm calls. In Attention, q and k each rms_norm. Could we share? No.
+
+Maybe we can replace CenteredRMSNorm with a module that uses mx.fast.rms_norm with weight fused as constant 1.0. Already does 1.0 + weight where weight is zeros. Could replace with lambda that just calls fast.rms_norm with weight=1.0. Saves addition.
+
+But biggest cost likely quantized matmul. Could we increase group size? No.
+
+Maybe we can fuse gate_proj sigmoid multiplication with o_proj? out * sigmoid(gate_proj(x)) then o_proj. Could we combine gate_proj and o_proj into one linear? No because sigmoid non-linear.
+
+Potential micro-optimizations: In Attention.__call__, they compute q = self.q_proj(x).reshape... Could we avoid transpose twice? They transpose q,k,v then later transpose back. Could we keep layout? scaled_dot_product_attention expects certain layout? Might be okay.
+
+Alternative: Use mlx.nn.Linear replacement? No.
+
+Maybe we can pre-allocate caches? Not.
+
+Another idea: The model uses nn.RoPE with traditional=False. Could we replace with custom faster implementation? Might be risky.
+
+Maybe simplest: In post_load, we can replace the QuantizedLinear's __call__ with a version that uses mx.quantized_matmul but with eval to reduce lazy graph size? Hmm.
+
+MLX lazy: arrays computed when mx.eval is called. The generation loop likely calls mx.eval each step. Could we reduce number of intermediate arrays by inlining operations? Could fuse the two RMSNorms in DecoderLayer? Input layernorm then self_attn then post_attention layernorm. Could we combine?
+
+Maybe we can replace CenteredRMSNorm.__call__ to use mx.fast.rms_norm directly with weight=1.0, avoiding creating 1.0+weight array each time. That's small.
+
+Better: The model has self.embed_eps and uses mx.fast.rms_norm(h, None, self.embed_eps). Could we pre-normalize embedding weights? Since rms_norm is applied to embedding vectors, which are static per token. We could precompute normalized embeddings at load time! That's a big win: embedding lookup then rms_norm each forward. If we pre-normalize embedding matrix, then lookup returns already normalized vector, saving rms_norm per token. Since rms_norm is per vector, and embedding vectors are fixed, we can precompute normalized embeddings once at post_load, replace embed_tokens weight with normalized version. That changes output? Wait rms_norm with weight None means scale=1? mx.fast.rms_norm(x, weight, eps). If weight is None, it's just normalization without scaling? Let's check: fast.rms_norm(x, weight, eps) returns x / sqrt(mean(x^2)+eps) * weight? Actually typical RMSNorm: y = x / sqrt(mean(x^2)+eps) * weight. If weight is None, maybe weight=1? In code, they call mx.fast.rms_norm(h, None, self.embed_eps). So weight None. In CenteredRMSNorm they pass 1.0+weight. So weight None means no scaling? Might be equivalent to weight=1.
+
+If we pre-normalize embedding matrix, we need to apply rms_norm to each row. Since rms_norm is deterministic per row, we can compute normalized embedding matrix once, replace embed_tokens weight with normalized version, and remove rms_norm call. That would change output? The rms_norm is applied after embedding lookup, so precomputing is equivalent. Since embedding vectors are static, yes we can pre-normalize.
+
+Similarly, the Attention q and k rms_norm are applied to projected vectors, which depend on input, can't precompute.
+
+But embedding normalization is a big saving per step: one rms_norm over hidden_size 6656 per token. That's maybe significant.
+
+Also, the model has self.norm at end: nn.RMSNorm. That's a standard RMSNorm with learnable weight. Could we fuse? No.
+
+Also, the model uses mx.fast.rms_norm for q and k. Could we fuse scale factor into rms_norm? q = rms_norm(q) * scale_factor. Could we multiply weight? rms_norm returns normalized * weight? Actually fast.rms_norm(x, weight, eps) returns normalized * weight? If weight is None, maybe weight=1. So we could pass weight = scale_factor? But rms_norm also normalizes. Could we combine? rms_norm(q, scale_factor, eps) would give normalized * scale_factor. That's exactly what they do: rms_norm(q, None) * scale_factor. So we can replace with rms_norm(q, scale_factor, eps). That saves one multiplication.
+
+Similarly, k rms_norm with weight None, could just call rms_norm with weight=1? Already.
+
+Also, in Attention, they do q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor. Replace with mx.fast.rms_norm(q, self.qk_scale_factor, self.eps). That removes multiplication.
+
+Also, they do k = mx.fast.rms_norm(k, None, self.eps). Could pass weight=1.0 to avoid None? Might be same.
+
+Also, in CenteredRMSNorm, weight is zeros, so 1.0+weight =1.0. Could just call mx.fast.rms_norm(x, 1.0, eps). Saves addition.
+
+Also, in MuseGlimmerModel.__call__, h = mx.fast.rms_norm(h, None, self.embed_eps). Could we pre-normalize embeddings as above, and remove this call entirely.
+
+That seems promising.
+
+Also, the model uses self.embed_tokens.as_linear for tie_word_embeddings. That's fine.
+
+Memory limit 25GB, fine.
+
+We need to ensure output identical. Pre-normalizing embeddings is mathematically identical because rms_norm is deterministic. However, note that mx.fast.rms_norm with weight None may be slightly different from weight=1? Might be same.
+
+Also, the embedding normalization uses mx.fast.rms_norm with weight None. If we pre-normalize, we must ensure same numerical result. Since rms_norm is deterministic, yes.
+
+But careful: embedding matrix is nn.Embedding, not Linear. Its weight is array shape [vocab, hidden]. We can compute normalized version: normalized = mx.fast.rms_norm(weight, None, eps). Then replace weight with normalized. Then remove rms_norm call.
+
+Will this affect gradient? No inference.
+
+Also, we can fuse q scaling.
+
+Also, we can avoid creating mask each time? Might be okay.
+
+Let's design variant:
+
+NAME = "v1_fuse"
+EXACT = True? If we pre-normalize embeddings, output should be bit-identical if we compute normalization exactly same as original. Since we use same mx.fast.rms_norm, should be identical.
+
+But we also change q scaling to pass weight. That should be mathematically identical: rms_norm(x, w, eps) = norm(x) * w. Since norm(x) = x / sqrt(mean(x^2)+eps). So rms_norm(x, w) = x / sqrt(...) * w. Original: rms_norm(x, None) * scale. If rms_norm with weight None equals norm(x)*1, then yes identical.
+
+Need to verify mx.fast.rms_norm signature: mx.fast.rms_norm(x, weight, eps). If weight is None, maybe it treats weight as 1. Let's assume.
+
+Also, we can replace CenteredRMSNorm.__call__ to use weight=1.0 directly, avoiding addition.
+
+Also, we can replace Attention.__call__ to use rms_norm with weight.
+
+Implementation plan:
+
+apply():
+- Patch MuseGlimmerModel.__call__ to skip embedding rms_norm if we pre-normalized? Could do in post_load.
+
+Simpler: post_load(model):
+- Find model.model.embed_tokens weight, compute normalized, replace.
+- Also patch classes to use fused rms_norm.
+
+But patching classes before weights load may be easier.
+
+We can in apply() replace Attention.__call__ with optimized version.
+
+Also replace CenteredRMSNorm.__call__.
+
+Also replace MuseGlimmerModel.__call__ to skip embedding rms_norm if we pre-normalized? Could just pre-normalize and keep call but with identity? Better to remove call.
+
+Simpler: In post_load, replace embed_tokens weight with normalized, and monkey-patch MuseGlimmerModel.__call__ to skip rms_norm.
+
+But we can also just keep rms_norm call but with pre-normalized weights, then rms_norm of already normalized vector will not be same. So need to remove call.
+
+Alternative: Keep original code path but pre-normalize and also make rms_norm a no-op? Could replace embed_tokens with a custom embedding that returns normalized.
+
+Easier: In post_load, we compute normalized embedding matrix, replace weight, and also replace MuseGlimmerModel.__call__ with a version that skips rms_norm.
+
+We can monkey-patch the class method.
+
+Since apply is called before weights load, we can patch classes. post_load is after weights load.
+
+Let's do both:
+
+In apply():
+- Patch CenteredRMSNorm.__call__ to use weight=1.0 directly (since weight is zeros). But weight is a parameter, could be non-zero? In init, weight = mx.zeros. So always zero. Could assume.
+
+- Patch Attention.__call__ to use rms_norm with weight.
+
+- Patch MuseGlimmerModel.__call__ to skip embedding rms_norm? But we need normalized weights.
+
+Maybe combine: In post_load, normalize embeddings and patch MuseGlimmerModel.__call__ to skip rms_norm.
+
+Let's implement variant:
+
+NAME = "v1_fuse_rms_and_pre_norm"
+EXACT = True
+DESCRIPTION = ...
+
+apply():
+- import mlx_lm.models.muse_glimmer as mg
+- Save original Attention.__call__
+- Define new __call__ that uses rms_norm with weight.
+
+But we need to keep same signature.
+
+Simpler: just replace methods via monkey patching.
+
+Let's craft code.
+
+Implementation details:
+
+from mlx_lm.models.muse_glimmer import Attention, CenteredRMSNorm, MuseGlimmerModel
+
+Original Attention.__call__ code.
+
+We can define new function:
+
+def attention_call_opt(self, x, mask=None, cache=None):
+   ... same but q = mx.fast.rms_norm(q, self.qk_scale_factor, self.eps)
+   k = mx.fast.rms_norm(k, 1.0, self.eps)  # weight 1
+
+Also CenteredRMSNorm:
+
+def centered_rms_norm_call(self, x):
+   return mx.fast.rms_norm(x, 1.0, self.eps)
+
+MuseGlimmerModel.__call__ optimization: we can pre-normalize embeddings in post_load, and then replace __call__ to skip rms_norm.
+
+Let's do post_load:
+
+def post_load(model):
+   # normalize embeddings
+   embed = model.model.embed_tokens
+   weight = embed.weight  # mx array
+   eps = model.model.embed_eps
+   normalized = mx.fast.rms_norm(weight, None, eps)
+   # replace weight
+   embed.weight = normalized
+   # Now patch MuseGlimmerModel.__call__ to skip rms_norm
+   # We can monkey-patch the instance's __call__? Better patch class.
+
+Simpler: In apply, we patch MuseGlimmerModel.__call__ to check if embed is pre-normalized? Hmm.
+
+Alternative: In post_load, we can replace model.model.__call__ with custom version that skips rms_norm.
+
+Since we have model instance, we can replace its __call__ method.
+
+Let's do:
+
+def post_load(model):
+   # pre-normalize embeddings
+   ...
+   # replace model.model.__call__
+   original_call = model.model.__call__
+   def new_call(self, inputs, cache=None):
+       h = self.embed_tokens(inputs)  # already normalized
+       # skip rms_norm
+       if cache is None:
+           cache = [None]*len(self.layers)
+       masks = self._masks(h, cache)
+       for layer,c,mask in zip(self.layers, cache, masks):
+           h = layer(h, mask, c)
+       return self.norm(h)
+   model.model.__call__ = new_call.__get__(model.model, MuseGlimmerModel)
+
+But need to keep self reference.
+
+Maybe easier: just patch class in apply to skip rms_norm if a flag set.
+
+Alternative approach: Keep original __call__ but make embed_tokens return normalized vectors by replacing its weight. Then the rms_norm applied to already normalized vectors will change them! Because rms_norm of normalized vector is not identity (norm of normalized vector is 1). Actually rms_norm of a vector that is already normalized to unit RMS will be... If vector v is normalized to have RMS=1, then rms_norm(v) = v / sqrt(mean(v^2)+eps) = v / sqrt(1+eps) ≈ v. Not identity. So can't keep rms_norm.
+
+Thus we must remove rms_norm call.
+
+Let's implement patching of MuseGlimmerModel.__call__ in apply to skip rms_norm, but only if we pre-normalized. Could do in post_load: replace method.
+
+Simpler: In apply, we replace MuseGlimmerModel.__call__ with optimized version that assumes embeddings are pre-normalized. Then in post_load we pre-normalize.
+
+Let's do:
+
+apply():
+   patch Attention.__call__
+   patch CenteredRMSNorm.__call__
+   patch MuseGlimmerModel.__call__ (optimized version without embedding rms_norm)
+
+post_load():
+   normalize embeddings and replace weight.
+
+But the optimized MuseGlimmerModel.__call__ will still call embed_tokens then skip rms_norm. Good.
+
+Implementation steps:
+
+In apply():
+   from mlx_lm.models.muse_glimmer import Attention, CenteredRMSNorm, MuseGlimmerModel
+   import mlx.core as mx
+
+   original_attention_call = Attention.__call__
+   def attention_call_opt(self, x, mask=None, cache=None):
+       B,L,_ = x.shape
+       q = self.q_proj(x).reshape(B,L,self.n_heads,self.head_dim)
+       k = self.k_proj(x).reshape(B,L,self.n_kv_heads,self.head_dim)
+       v = self.v_proj(x).reshape(B,L,self.n_kv_heads,self.head_dim)
+       q = mx.fast.rms_norm(q, self.qk_scale_factor, self.eps)
+       k = mx.fast.rms_norm(k, 1.0, self.eps)
+       q = q.transpose(0,2,1,3)
+       k = k.transpose(0,2,1,3)
+       v = v.transpose(0,2,1,3)
+       if self.use_rope:
+           offset = cache.offset if cache is not None else 0
+           q = self.rope(q, offset=offset)
+           k = self.rope(k, offset=offset)
+       if cache is not None:
+           k, v = cache.update_and_fetch(k, v)
+       out = scaled_dot_product_attention(q,k,v,cache=cache,scale=self.scale,mask=mask)
+       out = out.transpose(0,2,1,3).reshape(B,L,-1)
+       out = out * mx.sigmoid(self.gate_proj(x))
+       return self.o_proj(out)
+   Attention.__call__ = attention_call_opt
+
+   CenteredRMSNorm.__call__ = lambda self,x: mx.fast.rms_norm(x,1.0,self.eps)
+
+   # Patch MuseGlimmerModel
+   original_mg_call = MuseGlimmerModel.__call__
+   def mg_call_opt(self, inputs, cache=None):
+       h = self.embed_tokens(inputs)
+       # skip rms_norm
+       if cache is None:
+           cache = [None]*len(self.layers)
+       masks = self._masks(h, cache)
+       for layer,c,mask in zip(self.layers, cache, masks):
+           h = layer(h, mask, c)
+       return self.norm(h)
+   MuseGlimmerModel.__call__ = mg_call_opt
+
+post_load:
+   normalize embeddings.
+
+Need to ensure _masks uses h shape, fine.
+
+Potential issue: The original MuseGlimmerModel.__call__ also does h = mx.fast.rms_norm(h, None, self.embed_eps). If we skip, we must have pre-normalized embeddings.
+
+In post_load, we need to compute normalized weight and assign back.
+
+Implementation of post_load:
+
+def post_load(model):
+   # model is Model instance
+   embed_module = model.model.model.embed_tokens? Wait model.model is MuseGlimmerModel. Actually Model.model is MuseGlimmerModel. So model.model.embed_tokens.
+
+   embed = model.model.embed_tokens
+   weight = embed.weight
+   eps = model.model.embed_eps
+   normalized = mx.fast.rms_norm(weight, None, eps)
+   mx.eval(normalized)  # force compute
+   embed.weight = normalized
+
+That's it.
+
+Potential memory: normalized weight same size as original, fine.
+
+Now EXACT = True? Since we changed rms_norm weight passing, is it bit-identical? Should be mathematically identical. However, using mx.fast.rms_norm with weight=1.0 vs weight=None may produce same result? Might be same.
+
+Also, CenteredRMSNorm weight is zeros, so 1.0+weight =1.0. Using 1.0 directly is identical.
+
+Attention q scaling: original does rms_norm(q, None) * scale. New does rms_norm(q, scale). Since rms_norm multiplies by weight after normalization, it's identical.
+
+Potential floating point difference due to order of operations? Multiplication vs scaling inside fast.rms_norm may be same.
+
+Also, we changed k rms_norm to weight 1.0 instead of None. Should be same.
+
+Potential issue: In original Attention, they do q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor. If rms_norm with weight None returns normalized *1, then multiplying by scale is same as rms_norm with weight scale. Good.
+
+Now, we also changed MuseGlimmerModel to skip embedding rms_norm. Since we pre-normalized, output should be identical.
+
+Potential risk: The embedding normalization uses mx.fast.rms_norm(weight, None, eps). The original code does rms_norm on each lookup vector individually. Since rms_norm is per vector, normalizing the whole matrix row-wise is equivalent. Since rms_norm is applied per row, yes.
+
+But note: mx.fast.rms_norm on 2D array normalizes over last axis? It should normalize each row independently. Good.
+
+Now, ensure we import scaled_dot_product_attention.
+
+In apply, we need to import from .base.
+
+Let's craft final variant file.
+
+Potential pitfalls: The Attention class uses self.rope, self.use_rope etc. Our copy must preserve.
+
+Also, we need to keep original imports.
+
+Let's produce final code.
+
+Edge: In apply, we reference scaled_dot_product_attention from .base. Need import.
+
+Also, we need to ensure we don't break other methods.
+
+Let's produce final answer.
+
+<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_fuse_rms_and_pre_norm — fuse RMSNorm scaling and pre-normalize embeddings."""
+
+NAME = "v1_fuse_rms_and_pre_norm"
+EXACT = True
+DESCRIPTION = "Fuse RMSNorm weight scaling, replace CenteredRMSNorm with constant weight, pre-normalize embeddings to remove per-token rms_norm."
+
+def apply():
+    import mlx.core as mx
+    from mlx_lm.models.muse_glimmer import Attention, CenteredRMSNorm, MuseGlimmerModel
+    from mlx_lm.models.base import scaled_dot_product_attention
+
+    # CenteredRMSNorm weight is always 1.0+0 -> 1.0
+    def centered_rms_norm_call(self, x):
+        return mx.fast.rms_norm(x, 1.0, self.eps)
+
+    CenteredRMSNorm.__call__ = centered_rms_norm_call
+
+    # Attention: fuse qk_scale_factor into rms_norm weight
+    def attention_call_opt(self, x, mask=None, cache=None):
+        B, L, _ = x.shape
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, self.qk_scale_factor, self.eps)
+        k = mx.fast.rms_norm(k, 1.0, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        out = scaled_dot_product_attention(
+            q, k, v, cache=cache, scale=self.scale, mask=mask
+        )
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    Attention.__call__ = attention_call_opt
+
+    # MuseGlimmerModel: skip per-token embedding rms_norm (pre-normalized in post_load)
+    def mg_call_opt(self, inputs, cache=None):
+        h = self.embed_tokens(inputs)
+        if cache is None:
+            cache = [None] * len(self.layers)
+        masks = self._masks(h, cache)
+        for layer, c, mask in zip(self.layers, cache, masks):
+            h = layer(h, mask, c)
+        return self.norm(h)
+
+    MuseGlimmerModel.__call__ = mg_call_opt
+
+
+def post_load(model):
+    import mlx.core as mx
+    # Pre-normalize embedding matrix so the per-token rms_norm can be removed
+    embed = model.model.embed_tokens
+    weight = embed.weight
+    eps = model.model.embed_eps
+    normalized = mx.fast.rms_norm(weight, None, eps)
+    mx.eval(normalized)
+    embed.weight = normalized
+```
+

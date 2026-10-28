@@ -1,0 +1,191 @@
+ to=self<|message|>The referee ran your file. Result... AttributeError: module 'mlx.core' has no attribute 'silu'
+
+Fix problem. Need use mx.silu? Actually mlx.core has silu? In MLX, silu is mx.silu? Let's check. In MLX 0.32.4, silu is mx.silu? Might be mx.nn? Hmm. The original code uses nn.silu. In MLP __call__: return self.down_proj(nn.silu(self.gate_proj(x)) * self.up_proj(x)). So nn.silu exists. mx.silu may not exist. Use mlx.nn.silu? Or mx.silu? Let's check MLX facts. Probably mx.silu not exist. Use nn.silu.
+
+Also need ensure fused_attention_call uses mx.sigmoid which exists? mx.sigmoid exists.
+
+Also need ensure we import nn? We used mx.sigmoid. That's fine.
+
+The error is mx.silu. Change to nn.silu.
+
+Also need ensure we keep same output. Using fused matmul should be equivalent.
+
+Also need ensure we don't break when not fused? We check hasattr.
+
+Potential issue: qkv_fused_weight shape concatenation along axis 0. Original q_proj weight shape [out, in/8]. Concatenating works.
+
+But we also need to keep group_size etc. Works.
+
+Also need to ensure we import mlx.nn as nn for silu.
+
+Simplify: replace mx.silu with nn.silu.
+
+Also in fused_attention_call we used mx.sigmoid(self.gate_proj(x)). gate_proj is QuantizedLinear, so self.gate_proj(x) returns array. That's fine.
+
+Potential issue: we used self.qkv_splits = (q_w.shape[0], k_w.shape[0], v_w.shape[0]) but we need sizes in terms of output elements not weight shape? q_w.shape[0] is out dim. Since we concatenated weights along axis 0, the output dimension is sum. Splitting by number of rows works.
+
+But we used out[..., :s0] etc. out shape is (B, L, out_dim). That's fine.
+
+But we need to ensure qkv_fused_weight concatenation preserves packing. Since each weight is packed uint32, concatenating along axis 0 yields valid packed weight.
+
+Potential issue: scales and biases concatenation axis 0 works.
+
+Potential issue: we didn't update self.q_proj etc. That's fine.
+
+Also need to ensure we don't break when model has tie_word_embeddings? Not relevant.
+
+Also need to ensure we import nn for silu.
+
+Let's produce corrected file.
+
+Also maybe need to use mx.fast.silu? No.
+
+Let's change fused_mlp_call to use nn.silu.
+
+Also need import mlx.nn as nn in apply? We can import inside.
+
+Simpler: replace mx.silu with mx.nn.silu? Actually mlx.nn.silu exists.
+
+Let's just use from mlx_lm.models.muse_glimmer import ... and import mlx.nn as nn.
+
+In post_load we used mx.concatenate.
+
+We'll adjust fused_mlp_call:
+
+def fused_mlp_call(self, x):
+   ...
+   return self.down_proj(nn.silu(gate) * up)
+
+Need nn imported in scope. In apply we didn't import nn. We can import mlx.nn as nn inside apply.
+
+Let's modify apply to import nn.
+
+Also ensure we keep EXACT True.
+
+Provide complete corrected file.
+
+Potential other bug: In fused_attention_call we used self.qkv_fused_weight etc. But we also need to ensure we don't use self.q_proj.group_size etc after we replaced? It's fine.
+
+Also need to ensure we don't break when cache is None for rope offset.
+
+Looks fine.
+
+Let's output corrected file.
+
+<|eom|><|start|>assistant to=user<|message|>```python
+"""fuse_qkv_mlp — fuse QKV and MLP projections to reduce kernel launches."""
+
+NAME = "fuse_qkv_mlp"
+EXACT = True
+DESCRIPTION = "Fuse QKV projections in Attention and gate/up projections in MLP into single quantized matmuls."
+
+def apply():
+    import mlx.core as mx
+    import mlx.nn as nn
+    from mlx_lm.models.muse_glimmer import Attention, MLP
+    from mlx_lm.models.base import scaled_dot_product_attention
+
+    _orig_attn_call = Attention.__call__
+    _orig_mlp_call = MLP.__call__
+
+    def fused_attention_call(self, x, mask=None, cache=None):
+        if not hasattr(self, "qkv_fused_weight"):
+            return _orig_attn_call(self, x, mask, cache)
+
+        B, L, _ = x.shape
+        out = mx.quantized_matmul(
+            x,
+            self.qkv_fused_weight,
+            scales=self.qkv_fused_scales,
+            biases=self.qkv_fused_biases,
+            transpose=True,
+            group_size=self.q_proj.group_size,
+            bits=self.q_proj.bits,
+            mode=self.q_proj.mode,
+        )
+        s0, s1, s2 = self.qkv_splits
+        q = out[..., :s0]
+        k = out[..., s0:s0 + s1]
+        v = out[..., s0 + s1:]
+
+        q = q.reshape(B, L, self.n_heads, self.head_dim)
+        k = k.reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = v.reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        out_attn = scaled_dot_product_attention(
+            q, k, v, cache=cache, scale=self.scale, mask=mask
+        )
+        out_attn = out_attn.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out_attn = out_attn * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out_attn)
+
+    def fused_mlp_call(self, x):
+        if not hasattr(self, "gate_up_fused_weight"):
+            return _orig_mlp_call(self, x)
+
+        out = mx.quantized_matmul(
+            x,
+            self.gate_up_fused_weight,
+            scales=self.gate_up_fused_scales,
+            biases=self.gate_up_fused_biases,
+            transpose=True,
+            group_size=self.gate_proj.group_size,
+            bits=self.gate_proj.bits,
+            mode=self.gate_proj.mode,
+        )
+        inter = self.mlp_intermediate_size
+        gate = out[..., :inter]
+        up = out[..., inter:]
+        return self.down_proj(nn.silu(gate) * up)
+
+    Attention.__call__ = fused_attention_call
+    MLP.__call__ = fused_mlp_call
+
+
+def post_load(model):
+    import mlx.core as mx
+
+    for layer in model.model.layers:
+        attn = layer.self_attn
+
+        q_w = attn.q_proj.weight
+        k_w = attn.k_proj.weight
+        v_w = attn.v_proj.weight
+        attn.qkv_fused_weight = mx.concatenate([q_w, k_w, v_w], axis=0)
+        attn.qkv_fused_scales = mx.concatenate(
+            [attn.q_proj.scales, attn.k_proj.scales, attn.v_proj.scales], axis=0
+        )
+        attn.qkv_fused_biases = mx.concatenate(
+            [attn.q_proj.biases, attn.k_proj.biases, attn.v_proj.biases], axis=0
+        )
+        attn.qkv_splits = (q_w.shape[0], k_w.shape[0], v_w.shape[0])
+
+        mlp = layer.mlp
+        g_w = mlp.gate_proj.weight
+        u_w = mlp.up_proj.weight
+        mlp.gate_up_fused_weight = mx.concatenate([g_w, u_w], axis=0)
+        mlp.gate_up_fused_scales = mx.concatenate(
+            [mlp.gate_proj.scales, mlp.up_proj.scales], axis=0
+        )
+        mlp.gate_up_fused_biases = mx.concatenate(
+            [mlp.gate_proj.biases, mlp.up_proj.biases], axis=0
+        )
+        mlp.mlp_intermediate_size = g_w.shape[0]
+
+    pass
+```

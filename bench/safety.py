@@ -51,3 +51,32 @@ def check_source(src: str):
     if missing:
         problems.append(f"missing required top-level definitions: {sorted(missing)}")
     return problems
+
+
+MODEL_PARTS = ["Attention", "MLP", "DecoderLayer", "MuseGlimmerModel", "Model", "QuantizedLinear",
+               "quantized_matmul", "scaled_dot_product_attention", "RoPE", "compile", "gate_proj",
+               "up_proj", "down_proj", "q_proj", "k_proj", "v_proj", "o_proj", "lm_head", "rope"]
+
+
+def identifiers(src: str) -> set:
+    """Every identifier the code actually uses (names, attributes, imported names) — comments,
+    docstrings and strings are ignored."""
+    ids = set()
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Name):
+            ids.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            ids.add(node.attr)
+        elif isinstance(node, ast.ImportFrom):
+            ids |= {a.name for a in node.names}
+    return ids
+
+
+def only_norm_change(src: str) -> bool:
+    """True if the code uses CenteredRMSNorm and none of the model's other parts
+    (heuristic used to reject repeats of the already-measured H1 idea in the guided arm)."""
+    try:
+        ids = identifiers(src)
+    except SyntaxError:
+        return False
+    return "CenteredRMSNorm" in ids and not (ids & set(MODEL_PARTS))

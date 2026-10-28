@@ -1,0 +1,42 @@
+{
+  "variant": "g_guided_medium_10280736_a2",
+  "variant_sha": "bd72de4d0996",
+  "expected_exact": true,
+  "time": "2026-10-28 07:38:10",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "cases": {
+    "chat": {
+      "first_mismatch": -1,
+      "token_match": 1.0,
+      "steps_compared": 64,
+      "bitexact_logprobs": false,
+      "max_abs_diff_all": 0.625,
+      "max_abs_diff_top20": 0.625
+    },
+    "code": {
+      "first_mismatch": 226,
+      "token_match": 0.9922,
+      "steps_compared": 64,
+      "bitexact_logprobs": false,
+      "max_abs_diff_all": 1.75,
+      "max_abs_diff_top20": 0.75
+    },
+    "p1024": {
+      "first_mismatch": -1,
+      "token_match": 1.0,
+      "steps_compared": 64,
+      "bitexact_logprobs": true,
+      "max_abs_diff_all": 0.0,
+      "max_abs_diff_top20": 0.0
+    },
+    "p4096": {
+      "first_mismatch": -1,
+      "token_match": 1.0,
+      "steps_compared": 64,
+      "bitexact_logprobs": false,
+      "max_abs_diff_all": 0.875,
+      "max_abs_diff_top20": 0.75
+    }
+  },
+  "verdict": "FAIL (variant claims bit-exact, output differs)"
+}

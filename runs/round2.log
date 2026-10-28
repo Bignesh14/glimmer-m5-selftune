@@ -1,0 +1,74 @@
+run unguided_medium_p2_20261028-072259: arm=unguided strength=medium attempts=3
+
+=== attempt 1: asking Glimmer (g_unguided_medium_10280723_a1)
+PROPOSE {"prompt_tokens": 3591, "gen_tokens": 5295, "gen_seconds": 209.8, "hit_max_tokens": false, "peak_mem_gb": 16.52, "reasoning_tokens": 4569, "variant": "g_unguided_medium_10280723_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_unguided_medium_10280723_a1
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 159, in main
+    vmod.post_load(model)                             # e.g. precompute / merge weights
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_unguided_medium_10280723_a1.py", line 68, in post_load
+    normalized = mx.fast.rms_norm(weight, None, eps)
+ValueError: [rms_norm] Received unsupported type uint32.
+
+=== attempt 2: asking Glimmer (g_unguided_medium_10280726_a2)
+PROPOSE {"prompt_tokens": 4514, "gen_tokens": 2129, "gen_seconds": 87.9, "hit_max_tokens": false, "peak_mem_gb": 16.6, "reasoning_tokens": 1546, "variant": "g_unguided_medium_10280726_a2", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_unguided_medium_10280726_a2
+    h = self.input_layernorm(x)
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_unguided_medium_10280726_a2.py", line 14, in centered_rms_norm_call
+    return mx.fast.rms_norm(x, 1.0, self.eps)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+TypeError: rms_norm(): incompatible function arguments. The following argument types are supported:
+    1. rms_norm(x: array, weight: array | None, eps: float, *, stream: StreamOrDevice = None) -> array
+
+Invoked with types: mlx.core.array, float, float
+
+=== attempt 3: asking Glimmer (g_unguided_medium_10280728_a3)
+PROPOSE {"prompt_tokens": 5765, "gen_tokens": 1496, "gen_seconds": 65.2, "hit_max_tokens": false, "peak_mem_gb": 16.6, "reasoning_tokens": 909, "variant": "g_unguided_medium_10280728_a3", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_unguided_medium_10280728_a3
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 221, in __call__
+    h = layer(h, mask, c)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 177, in __call__
+    h = self.input_layernorm(x)
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_unguided_medium_10280728_a3.py", line 14, in centered_rms_norm_call
+    return mx.fast.rms_norm(x, mx.array(1.0), self.eps)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: [rms_norm] (*weight) must have 1 dimension but has 0 dimensions.
+
+No passing variant after 3 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/unguided_medium_p2_20261028-072259
+run guided_medium_p2_20261028-072922: arm=guided strength=medium attempts=3
+
+=== attempt 1: asking Glimmer (g_guided_medium_10280729_a1)
+PROPOSE {"prompt_tokens": 3813, "gen_tokens": 11055, "gen_seconds": 435.8, "hit_max_tokens": false, "peak_mem_gb": 16.57, "reasoning_tokens": 9787, "variant": "g_guided_medium_10280729_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_medium_10280729_a1
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 221, in __call__
+    h = layer(h, mask, c)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 184, in __call__
+    h = self.mlp(h)
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_guided_medium_10280729_a1.py", line 78, in fused_mlp_call
+    return self.down_proj(mx.silu(gate) * up)
+                          ^^^^^^^
+AttributeError: module 'mlx.core' has no attribute 'silu'
+
+=== attempt 2: asking Glimmer (g_guided_medium_10280736_a2)
+PROPOSE {"prompt_tokens": 5743, "gen_tokens": 1866, "gen_seconds": 79.5, "hit_max_tokens": false, "peak_mem_gb": 16.6, "reasoning_tokens": 769, "variant": "g_guided_medium_10280736_a2", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_medium_10280736_a2
+variant g_guided_medium_10280736_a2 (bd72de4d0996) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=False maxdiff_all=0.625 maxdiff_top20=0.625
+code   first_mismatch= 226 match=0.9922 bitexact=False maxdiff_all=1.75 maxdiff_top20=0.75
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=False maxdiff_all=0.875 maxdiff_top20=0.75
+VERDICT: FAIL (variant claims bit-exact, output differs)
+
+=== attempt 3: asking Glimmer (g_guided_medium_10280738_a3)
+PROPOSE {"prompt_tokens": 7091, "gen_tokens": 9713, "gen_seconds": 390.2, "hit_max_tokens": false, "peak_mem_gb": 16.63, "reasoning_tokens": 8625, "variant": "g_guided_medium_10280738_a3", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_medium_10280738_a3
+variant g_guided_medium_10280738_a3 (1f6623014c6c) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=False maxdiff_all=0.625 maxdiff_top20=0.625
+code   first_mismatch= 226 match=0.9922 bitexact=False maxdiff_all=1.75 maxdiff_top20=0.75
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=False maxdiff_all=0.875 maxdiff_top20=0.75
+VERDICT: FAIL (outside tolerance)
+
+No passing variant after 3 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/guided_medium_p2_20261028-072922

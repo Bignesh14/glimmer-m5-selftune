@@ -1,0 +1,12 @@
+{
+ "prompt_tokens": 5765,
+ "gen_tokens": 1496,
+ "gen_seconds": 65.2,
+ "hit_max_tokens": false,
+ "peak_mem_gb": 16.6,
+ "reasoning_tokens": 909,
+ "variant": "g_unguided_medium_10280728_a3",
+ "strength": "medium",
+ "visible_answer": true,
+ "code_found": true
+}

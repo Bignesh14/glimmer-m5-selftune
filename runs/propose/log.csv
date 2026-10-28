@@ -9,3 +9,9 @@ time,run_id,arm,strength,attempt,variant,gen_tokens,reasoning_tokens,gen_seconds
 2026-10-28 01:49:29,guided_high_20261028-013335,guided,high,3,g_guided_high_10280149_a3,12000,12000,473.1,False,-,NO CODE,hit max tokens
 2026-10-28 01:57:27,guided_low_20261028-015726,guided,low,1,g_guided_low_10280157_a1,1687,875,69.6,True,ok,CRASHED,
 2026-10-28 01:58:42,guided_low_20261028-015726,guided,low,2,g_guided_low_10280158_a2,403,122,21.3,True,ok,PASS (bit-exact),
+2026-10-28 07:23:00,unguided_medium_p2_20261028-072259,unguided,medium,1,g_unguided_medium_10280723_a1,5295,4569,209.8,True,ok,CRASHED,
+2026-10-28 07:26:36,unguided_medium_p2_20261028-072259,unguided,medium,2,g_unguided_medium_10280726_a2,2129,1546,87.9,True,ok,CRASHED,
+2026-10-28 07:28:11,unguided_medium_p2_20261028-072259,unguided,medium,3,g_unguided_medium_10280728_a3,1496,909,65.2,True,ok,CRASHED,
+2026-10-28 07:29:23,guided_medium_p2_20261028-072922,guided,medium,1,g_guided_medium_10280729_a1,11055,9787,435.8,True,ok,CRASHED,
+2026-10-28 07:36:45,guided_medium_p2_20261028-072922,guided,medium,2,g_guided_medium_10280736_a2,1866,769,79.5,True,ok,"FAIL (variant claims bit-exact, output differs)",
+2026-10-28 07:38:58,guided_medium_p2_20261028-072922,guided,medium,3,g_guided_medium_10280738_a3,9713,8625,390.2,True,ok,FAIL (outside tolerance),

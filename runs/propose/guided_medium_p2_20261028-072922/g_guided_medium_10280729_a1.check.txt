@@ -1,0 +1,38 @@
+variant g_guided_medium_10280729_a1 (608738d70703) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+Traceback (most recent call last):
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 173, in <module>
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 167, in main
+    check(model, cases, vmod, a.variant, vsha)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 69, in check
+    toks, lps = run_tokens(model, ids, C.CHECK_TOKENS, C.LOGIT_STEPS)
+                ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/bench/run_one.py", line 39, in run_tokens
+    for i, (tok, lp) in enumerate(generate_step(mx.array(ids), model,
+                        ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                max_tokens=n_tokens, sampler=sampler)):
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/generate.py", line 441, in generate_step
+    _model_call(
+    ~~~~~~~~~~~^
+        input_tokens=processed[None],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        ),
+        ^^
+    )
+    ^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/generate.py", line 401, in _model_call
+    return model(input_tokens, cache=prompt_cache)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 236, in __call__
+    out = self.model(inputs, cache=cache)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 221, in __call__
+    h = layer(h, mask, c)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 184, in __call__
+    h = self.mlp(h)
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_guided_medium_10280729_a1.py", line 78, in fused_mlp_call
+    return self.down_proj(mx.silu(gate) * up)
+                          ^^^^^^^
+AttributeError: module 'mlx.core' has no attribute 'silu'

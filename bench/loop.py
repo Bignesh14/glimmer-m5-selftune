@@ -54,7 +54,20 @@ RULES
 HOW IT IS JUDGED: first a correctness check against reference outputs on 4 prompts (63 to 4152 tokens);
 then timed runs alternating with the original code: decode speed (800 generated tokens) and prompt
 processing speed (1K and 4K tokens). Faster by more than 0.1% in every paired run counts as a win.
+
+MLX FACTS (this is MLX, not PyTorch; verified against mlx 0.32.4)
+- nn.Module is a dict: sub-modules and arrays are dict entries, NOT entries of __dict__.
+  Walk the model with model.modules(), model.named_modules() or model.children().
+  There is no named_children(), no state_dict(), no .to(device), no torch-style hooks.
+- Every nn.Linear in the loaded model has been replaced by nn.QuantizedLinear (4-bit, affine, group 64):
+  its entries are `weight` (uint32, packed: 8 values per uint32, shape [out, in/8]),
+  `scales` and `biases` (shape [out, in/64]), plus attributes group_size=64, bits=4, mode="affine".
+  Its __call__ is mx.quantized_matmul(x, weight, scales=scales, biases=biases, transpose=True,
+  group_size=group_size, bits=bits, mode=mode). Packed uint32 weights cannot be used in float math;
+  use mx.dequantize / mx.quantize to convert, and keep weights quantized for speed and memory.
+- MLX is lazy: arrays are computed when mx.eval(...) is called or a value is needed.
 """
+PROMPT_VERSION = "p2"   # p1 = 27 Oct overnight runs (no MLX FACTS, no duplicate gate)
 
 GUIDANCE = """
 MEASUREMENTS ON THIS MACHINE (from our benchmarks of the original code)
@@ -63,8 +76,8 @@ MEASUREMENTS ON THIS MACHINE (from our benchmarks of the original code)
 - Prompt processing: ~810 tokens/s for 1K-4K token prompts; compute-bound.
 - Run-to-run noise is ~0.05%.
 - Removing one small elementwise GPU operation saves only ~0.15 microseconds per token. Measured example
-  (already done, do not resubmit): precomputing `1.0 + weight` once in CenteredRMSNorm (208 ops per token)
-  gave only +0.08% decode.
+  (already done; a variant that only changes CenteredRMSNorm is REJECTED as a duplicate): precomputing
+  `1.0 + weight` once in CenteredRMSNorm (208 ops per token) gave only +0.08% decode.
 - Directions more likely to matter: fewer separate large matrix multiplications or GPU kernel launches
   per layer, less memory traffic per token, fusing chains of elementwise operations into one kernel.
 """
@@ -100,13 +113,13 @@ def main():
     p.add_argument("--arm", required=True, choices=["unguided", "guided"])
     p.add_argument("--strength", required=True, choices=["low", "medium", "high"])
     p.add_argument("--attempts", type=int, default=3)
-    p.add_argument("--max-tokens", type=int, default=12000)
+    p.add_argument("--max-tokens", type=int, default=16000)
     p.add_argument("--race", action="store_true", help="race a passing variant against v0")
     p.add_argument("--fake-dir", help="testing only: replies a1.txt, a2.txt, ... instead of Glimmer")
     a = p.parse_args()
 
     C.guard()
-    run_id = f"{a.arm}_{a.strength}_{time.strftime('%Y%m%d-%H%M%S')}"
+    run_id = f"{a.arm}_{a.strength}_{PROMPT_VERSION}_{time.strftime('%Y%m%d-%H%M%S')}"
     folder = PROPOSE_DIR / run_id
     folder.mkdir(parents=True, exist_ok=True)
     conv_path = folder / "conv.json"
@@ -138,6 +151,9 @@ def main():
         else:
             src = (folder / f"{vname}.py").read_text()
             problems = safety.check_source(src)
+            if a.arm == "guided" and safety.only_norm_change(src):
+                problems.append("duplicate idea: this variant only changes CenteredRMSNorm, which is "
+                                "already measured (+0.08%). Propose a DIFFERENT optimization.")
             if problems:
                 row.update({"safety": "REJECTED", "verdict": "-", "notes": "; ".join(problems)})
                 feedback = ("The safety gate rejected your file before running it:\n- "

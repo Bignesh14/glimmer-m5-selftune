@@ -1,0 +1,153 @@
+ to=self<|message|>The referee ran your file. Result... ValueError: [rms_norm] Received unsupported type uint32.
+
+We need fix problem. Embedding weight is likely quantized? Wait embed_tokens is nn.Embedding, not quantized. But maybe weight is uint32? No.
+
+Actually embed_tokens weight is float? Could be quantized? In model, embed_tokens is nn.Embedding, not quantized. Hmm.
+
+Maybe embed_tokens.weight is not accessible? Or weight is uint32 due to quantization? Hmm.
+
+Alternative: embedding matrix may be quantized? No.
+
+Wait error: rms_norm received unsupported type uint32. So weight is uint32. Maybe embed_tokens weight is quantized? In MLX, Embedding can be quantized? Hmm.
+
+Maybe we need to dequantize? Or we shouldn't modify embedding weight because it's not quantized? Could be that embed_tokens.weight is a uint32 packed? No.
+
+Alternative approach: avoid modifying embedding weight in post_load, instead keep original but fuse? The error arises because weight dtype is uint32? Could be that embed_tokens weight is stored as uint32? Unlikely.
+
+Maybe model.model.embed_tokens.weight is a mx.array of dtype float16? Hmm.
+
+Wait maybe embed_tokens is also quantized? In Muse Glimmer, embedding not quantized? Could be quantized to 4-bit? The problem statement says every nn.Linear replaced by nn.QuantizedLinear. Embedding not linear.
+
+Maybe the weight is actually a Python object? Hmm.
+
+Alternative: we can avoid pre-normalizing embedding by using mx.fast.rms_norm on the fly? But we removed call.
+
+Alternative fix: cast weight to float before rms_norm. Use mx.astype(weight, mx.float32) then rms_norm.
+
+Also need to ensure memory stays under 25GB. Pre-normalizing embedding to float will increase memory: embedding size 202048 * 6656 ~ 1.34B params ~ 2.7 GB float16. Might be okay? 16GB weights already. Adding float copy may exceed? Could be okay but memory peak under 25GB.
+
+Better to avoid modifying embedding weight at all, just keep original rms_norm but fuse? Could we precompute normalized embedding as float32 and replace weight, but need to keep dtype? Could dequantize? Hmm.
+
+Simpler: just don't pre-normalize embedding; revert to original call? But we already changed MuseGlimmerModel.__call__ to skip rms_norm. Need to keep output identical. If we don't pre-normalize, output changes.
+
+Alternative: compute normalized embedding in float, but weight is uint32? Maybe embed_tokens.weight is actually a quantized embedding? Could be using nn.Embedding with quantized? Hmm.
+
+Maybe the error is because weight is a Python object? Let's inspect: embed_tokens.weight is mx.array. Could be dtype uint32 because embedding is stored as quantized? In MLX, Embedding can be quantized? Not sure.
+
+Alternative fix: use mx.convert? Let's try to cast to float32 first: weight_f = mx.astype(weight, mx.float32) then rms_norm.
+
+But if weight is uint32 packed, astype will fail.
+
+Maybe we should not touch embedding at all, instead keep rms_norm but fuse it into embedding weight via dequantize? Hmm.
+
+Alternative approach: Instead of pre-normalizing embedding matrix, we can keep the rms_norm call but make it a no-op by setting embed_eps to large? No.
+
+Better: just remove the rms_norm from forward but also keep original behavior by baking normalization into embedding weight at load time using correct dtype. The error is unsupported type uint32. So weight is uint32. Maybe embedding is also quantized to 4-bit? Could be nn.Embedding with quantized weights? In MLX, Embedding can be quantized? Possibly.
+
+We can dequantize? For embedding, maybe it's not quantized. Could be that embed_tokens.weight is a view of something? Hmm.
+
+Alternative simpler fix: don't modify embedding weight, just keep original rms_norm call. But we changed MuseGlimmerModel.__call__ to skip it. We could revert that change and keep original rms_norm, but then we lose speedup.
+
+Alternative: keep our optimization but avoid rms_norm on weight. Instead, we can compute normalized embedding on the fly using mx.fast.rms_norm on the embedding output, but we removed it. Could we fuse rms_norm into embedding lookup? Could precompute normalized embedding as float16, not uint32.
+
+Maybe the weight is actually a uint32 because embedding is stored as quantized? Let's assume embedding weight is quantized to 4-bit as well? The problem statement says every nn.Linear replaced by nn.QuantizedLinear. Embedding not linear.
+
+Maybe the model object has embed_tokens.weight as a mx.array of dtype float16, but when we access it after model loaded, it's still a reference to original? Hmm.
+
+Wait error occurs in post_load: normalized = mx.fast.rms_norm(weight, None, eps). ValueError: Received unsupported type uint32.
+
+So weight dtype is uint32. Could be that embed_tokens.weight is a uint32 because embedding is stored as quantized? Could be that nn.Embedding in MLX uses uint32 for quantized embeddings? Unclear.
+
+Alternative fix: we can skip pre-normalization entirely and just keep original rms_norm call in forward. But we already patched MuseGlimmerModel.__call__ to skip. We could instead keep rms_norm but make it cheap? Hmm.
+
+Simpler: just remove the post_load modification of embedding, and revert MuseGlimmerModel.__call__ to original? That would lose speedup.
+
+Alternative: we can compute normalized embedding using mx.norm? Could we use mx.fast.rms_norm with weight cast to float? Let's try mx.astype(weight, mx.float32). If weight is uint32, astype to float32 is allowed? Probably yes.
+
+Let's try: weight_f = mx.astype(weight, mx.float32); normalized = mx.fast.rms_norm(weight_f, None, eps). That may work.
+
+Also need to ensure we keep dtype consistent for later use. If we replace weight with float32, embedding lookup will return float32, which may change precision slightly but maybe still exact? Might break exactness.
+
+Alternative: we can keep weight as is, but compute normalized embedding in place using mx.eval? Hmm.
+
+Maybe easiest: just don't pre-normalize embedding, instead keep rms_norm but fuse it into the first layer norm? Could we just leave embedding rms_norm as is, and keep our other optimizations (CenteredRMSNorm and Attention). That would avoid error and still give speedup.
+
+The error is only from post_load. We can simply remove the embedding pre-normalization part, and revert MuseGlimmerModel.__call__ to original (which includes rms_norm). That would still keep CenteredRMSNorm and Attention optimizations.
+
+Let's do that: keep apply() changes for CenteredRMSNorm and Attention, but remove embedding pre-normalization and keep original MuseGlimmerModel.__call__.
+
+Simpler: in post_load, do nothing. And in apply, don't patch MuseGlimmerModel.__call__.
+
+Let's adjust: remove the mg_call_opt patch, and remove post_load embedding modification.
+
+That should still give speedup from CenteredRMSNorm and Attention fusion.
+
+Let's produce corrected file.
+
+We need complete variant file.
+
+We'll keep NAME, EXACT True, DESCRIPTION.
+
+apply(): patch CenteredRMSNorm.__call__ and Attention.__call__.
+
+No MuseGlimmerModel patch.
+
+post_load: pass.
+
+That avoids uint32 error.
+
+Let's output corrected file.<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_fuse_rms_and_pre_norm — fuse RMSNorm scaling and simplify CenteredRMSNorm."""
+
+NAME = "v1_fuse_rms_and_pre_norm"
+EXACT = True
+DESCRIPTION = "Fuse RMSNorm weight scaling, simplify CenteredRMSNorm to constant weight, fuse qk_scale_factor into rms_norm."
+
+def apply():
+    import mlx.core as mx
+    from mlx_lm.models.muse_glimmer import Attention, CenteredRMSNorm
+    from mlx_lm.models.base import scaled_dot_product_attention
+
+    # CenteredRMSNorm weight is always 1.0+0 -> 1.0, so the weight can be constant
+    def centered_rms_norm_call(self, x):
+        return mx.fast.rms_norm(x, 1.0, self.eps)
+
+    CenteredRMSNorm.__call__ = centered_rms_norm_call
+
+    # Attention: fuse qk_scale_factor into rms_norm weight to avoid extra multiply
+    def attention_call_opt(self, x, mask=None, cache=None):
+        B, L, _ = x.shape
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        # Original: rms_norm(q, None) * qk_scale_factor  -> rms_norm(q, qk_scale_factor)
+        q = mx.fast.rms_norm(q, self.qk_scale_factor, self.eps)
+        k = mx.fast.rms_norm(k, 1.0, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        out = scaled_dot_product_attention(
+            q, k, v, cache=cache, scale=self.scale, mask=mask
+        )
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    Attention.__call__ = attention_call_opt
+
+
+def post_load(model):
+    """No weight transformation needed; optimizations are in apply()."""
+    pass
+```

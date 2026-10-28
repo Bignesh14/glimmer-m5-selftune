@@ -1,0 +1,791 @@
+ to=self<|message|>You are Muse Glimmer. Below is exact Python source code...
+Task: make text generation faster WITHOUT changing what you output.
+
+We need variant file. Must not change output. EXACT? Could be True or False. If EXACT True, bit-identical. Safer to keep EXACT True.
+
+We need speed up decode. Decode is memory bandwidth bound, reads ~15 GB weights per token, 87% of 460 GB/s. So need reduce memory traffic per token. Fewer kernel launches, fuse operations.
+
+Potential optimizations:
+
+CenteredRMSNorm: currently does mx.fast.rms_norm(x, 1.0 + self.weight, eps). weight is zeros initially? In model, weight is zeros. 1.0 + weight is constant 1. So we could precompute scale = 1+weight and store. But weight is zero, so scale is 1. Then rms_norm with scale 1 is just norm. Could we replace CenteredRMSNorm with just rms_norm? Since weight is zero, 1+weight =1. But is weight ever non-zero after loading? Weights loaded from checkpoint. Might be zero? In __init__, weight = mx.zeros. But after loading weights, weight may be non-zero. Need check. Probably weights are loaded, so weight may be non-zero. Can't assume zero.
+
+But we can precompute 1+weight once at post_load, store as scale array, then __call__ uses precomputed scale. That saves addition per call. That's 208 ops per token, negligible.
+
+Better: fuse operations in Attention: q = q_proj(x).reshape... then rms_norm, scale, transpose. Could we fuse rms_norm with projection? Maybe not.
+
+Gated attention output: out * sigmoid(gate_proj(x)). That's two linear projections: gate_proj and o_proj. Could we fuse gate_proj with sigmoid? Maybe compute gate_proj then sigmoid, multiply. Could we pre-fuse? Hmm.
+
+MLP: down_proj(silu(gate_proj(x)) * up_proj(x)). That's two linear projections then elementwise multiply then silu then linear. Could we fuse silu and multiply? Maybe use fused kernel? Not available.
+
+Memory bandwidth bound: reduce weight reads. Could we quantize more? No.
+
+Maybe we can fuse the two RMSNorms in DecoderLayer? Input layernorm then attention then post_attention layernorm etc. Could we combine residual adds? Not change output.
+
+Alternative: The model uses nn.Linear which for quantized linear does quantized_matmul. That's already fast.
+
+Maybe we can reduce number of separate large matrix multiplications per layer by merging q/k/v projections? q_proj, k_proj, v_proj are three separate linear layers. Could we combine them into one linear with concatenated output, then split? That would reduce kernel launches from 3 to 1 per layer, and reduce memory reads? Actually weights still read same total, but fewer launches and less overhead. Since decode is memory bandwidth bound, reducing launches may help a bit. But memory traffic same.
+
+But we can also fuse gate_proj and up_proj? Hmm.
+
+Another idea: The Attention does q = mx.fast.rms_norm(q, None, eps) * qk_scale_factor. That's rms_norm then multiply scalar. Could fuse multiply into rms_norm? rms_norm returns normalized values, multiply by scalar is cheap. Could we bake scale into rms_norm? No.
+
+Maybe we can precompute qk_scale_factor multiplication into the rms_norm? Not.
+
+Better: The model uses mx.fast.rms_norm for scaleless QK-norm. That's a fast kernel. Good.
+
+Potential big win: The model has 4 CenteredRMSNorm per layer (input, post_attention, pre_ff, post_ff). Each does mx.fast.rms_norm(x, 1.0 + weight, eps). That's a kernel launch per norm. 52 layers *4 =208 norms per token. Each is elementwise over hidden_size 6656 * batch 1 * seq 1 = 6656 ops, trivial. But kernel launch overhead maybe ~? 208 launches per token ~ maybe 0.5 ms? Could fuse multiple norms? Not easy.
+
+Alternative: The embedding RMSNorm: h = mx.fast.rms_norm(h, None, embed_eps). That's per token? Actually during decode, embedding is only for first token? During decode, inputs is one token at a time, so embedding is one token. That's fine.
+
+Maybe we can cache the 1+weight for CenteredRMSNorm to avoid addition each time. That's small.
+
+Another idea: The Attention's gate_proj(x) is computed, then sigmoid, then multiply with out. Could we fuse sigmoid with multiplication? Not.
+
+Maybe we can replace CenteredRMSNorm with a custom module that precomputes scale = 1+weight at post_load, and then __call__ does mx.fast.rms_norm(x, scale, eps). That's same as before but avoids addition 1+weight each call. That's tiny.
+
+The prompt says removing one small elementwise GPU operation saves only ~0.15 microseconds per token. Measured example precomputing 1.0+weight once gave only +0.08% decode. So not enough.
+
+Directions more likely to matter: fewer separate large matrix multiplications or GPU kernel launches per layer, less memory traffic per token, fusing chains of elementwise operations into one kernel.
+
+Large matrix multiplications: In Attention, we have q_proj, k_proj, v_proj, o_proj, gate_proj = 5 linear per layer. MLP has gate_proj, up_proj, down_proj =3 linear. Total 8 per layer. 52 layers =416 linear per token. Each linear is quantized matmul with weight size ~? Could we fuse q/k/v into one? That would reduce 3 to 1. Similarly gate_proj and up_proj could be fused? In MLP, gate_proj and up_proj are both linear from hidden to intermediate. Could combine into one linear producing 2*intermediate, then split. That reduces 2 matmuls to 1. Similarly in Attention, q/k/v could be combined.
+
+But careful: q/k/v have different output sizes: q_proj output = n_heads * head_dim = 32*128=4096. k_proj output = n_kv_heads * head_dim =2*128=256. v_proj same 256. Total 4096+256+256=4608. Could combine into one linear with output 4608, then split. That would be one quantized matmul instead of three. That reduces memory reads? Actually total weight bytes read same, but fewer kernel launches and less overhead of reading weights in separate kernels (maybe better cache). Might improve.
+
+Similarly gate_proj and up_proj in MLP both map hidden->intermediate (19968). Could combine into one linear with output 2*intermediate =39936. Then split and compute silu on first part? Wait gate_proj is used for silu, up_proj multiplied. Actually MLP: down_proj(silu(gate_proj(x)) * up_proj(x)). So gate_proj and up_proj both produce intermediate size. Could combine.
+
+Also in Attention, gate_proj is separate from q/k/v.
+
+Potential risk: Changing output order must preserve exact output. If we combine linear, we must ensure same numerical result. Since linear is matrix multiply, combining is mathematically equivalent if we concatenate weights. Since quantized linear uses quantized_matmul with packed weights. Concatenating weights would require repacking. Could we just replace three Linear modules with a single custom module that does one matmul with concatenated weights? That would require transforming weights in memory at post_load. That's allowed: transform loaded weights in memory.
+
+We can in post_load, for each layer, replace q_proj, k_proj, v_proj with a fused projection. But we need to keep model structure compatible with __call__.
+
+Simpler: Patch Attention.__init__ to create fused projections? But apply() is called before weights load, so we can patch class definition to use fused linear. Then post_load can transform weights to match fused shape.
+
+Alternative: Keep original modules but override __call__ to compute fused matmul using original weights? Could we compute q,k,v in one matmul by stacking inputs? Could we just compute x once and do three matmuls? Still three.
+
+Better to fuse at weight level.
+
+Given constraints: allowed imports only mlx.core, mlx.nn, mlx.utils, mlx_lm.models.muse_glimmer, mlx_lm.models.base, math, functools, typing, dataclasses.
+
+We can in apply() monkey-patch Attention.__init__ to create a single fused qkv_proj Linear with output dim = sum. Then in post_load, we need to transform weights: original weights for q_proj, k_proj, v_proj are separate quantized weights. We need to create new fused weight that is concatenation of the three. Since quantized weights are packed uint32, we need to dequantize, concatenate, then requantize? That would change quantization error, breaking exact output.
+
+Alternative: Keep weights as is, but in __call__, we can compute q,k,v using a single quantized_matmul with concatenated weights? Could we manually concatenate the three weight arrays in memory before matmul? That would require dequantize each, concat, quantize again -> changes.
+
+Maybe we can keep weights separate but launch matmul in one kernel using mlx's ability to do multiple outputs? Not.
+
+Alternative approach: Use mlx's fused operations? Maybe we can replace the three separate Linear modules with a custom module that does three matmuls in one go using mx.concatenate of weights? Hmm.
+
+Maybe better to fuse the two RMSNorms around residual? Not.
+
+Another angle: The model uses mx.fast.rms_norm for scaleless QK-norm. That's already fast.
+
+Maybe we can eliminate the extra transpose operations? q = q_proj(x).reshape... then transpose. Could we avoid transpose by using different layout? Might be hard.
+
+Another idea: The attention uses scaled_dot_product_attention which may be expensive. Could we fuse the gate sigmoid multiplication with o_proj? Currently out = out * sigmoid(gate_proj(x)); return o_proj(out). Could we compute gate_proj(x) -> sigmoid -> multiply with out before o_proj. Could we fuse o_proj with multiplication? o_proj is linear: o_proj(out) = W_o * out. If out = attn * gate, then W_o * (attn * gate) = (W_o * attn) * gate? No, matrix multiplication not commutative.
+
+Could we precompute gate_proj weights fused with o_proj? Since gate_proj(x) is independent of attn, we could compute gate = sigmoid(W_g x). Then out = W_o (attn * gate). That's not separable.
+
+Maybe we can reduce memory traffic by using 4-bit quantization already.
+
+Maybe the biggest win is to fuse the two linear projections in MLP: gate_proj and up_proj. They are both linear from hidden to intermediate. Could we compute them together as one matmul with output 2*intermediate, then split? That would halve memory reads for those two projections (still read same total weight bytes, but one kernel launch instead of two, and maybe better memory bandwidth utilization). Might be enough.
+
+Similarly q/k/v fusion.
+
+Let's attempt to fuse qkv and gate/up.
+
+Implementation plan:
+
+In apply(), patch Attention.__init__ to create:
+self.qkv_proj = nn.Linear(dim, q_dim + k_dim + v_dim, bias=False)
+and keep original q_proj, k_proj, v_proj as placeholders? Or remove them.
+
+But __call__ expects self.q_proj etc. We could monkey-patch __call__ to use fused.
+
+Simpler: Patch Attention.__call__ to compute q,k,v using a single fused matmul by concatenating the three weight tensors on the fly? That would require dequantize each, concat, quantize -> overhead.
+
+Alternative: In post_load, we can replace the three Linear modules with a custom module that holds the three original weight arrays and performs a single quantized_matmul by concatenating the packed weights? Could we manually construct a new QuantizedLinear with concatenated weight? Since QuantizedLinear's weight is packed uint32. Concatenating packed weights from three different matrices is not trivial because packing is per matrix.
+
+Maybe we can keep the three Linear modules but replace their __call__ with a custom that does one matmul using the three weights stacked? Could we use mx.quantized_matmul with multiple weights? No.
+
+Alternative approach: Use mlx's ability to fuse elementwise ops. The biggest elementwise chain is in MLP: silu(gate_proj(x)) * up_proj(x). That's two matmuls then elementwise multiply then silu then matmul. Could we fuse silu and multiply into one kernel? Maybe we can replace MLP.__call__ with a fused version that computes gate and up in one matmul (fused), then elementwise. That still needs two matmuls? Actually one matmul for both.
+
+Maybe the simplest high-impact change is to fuse qkv projections into one linear. Let's attempt to implement by replacing Attention's q_proj, k_proj, v_proj with a single fused linear, and adjust __call__ accordingly.
+
+Steps:
+1. In apply(), patch Attention.__init__ to create fused qkv_proj instead of three separate. Also keep attributes for dimensions.
+2. Patch Attention.__call__ to use fused projection.
+
+But we need to ensure weights loaded correctly. The original weights are loaded under keys like 'layers.0.self_attn.q_proj.weight', etc. If we change __init__ to create a different module name, the weight loading will fail because keys mismatch.
+
+Alternative: Keep module names same, but replace the Linear modules after loading with fused ones, transforming weights.
+
+We can in post_load, iterate over model.layers, for each Attention, replace q_proj, k_proj, v_proj with a fused module, and move weights.
+
+Since weights are already loaded into model dict, we can manipulate the dict entries.
+
+Simpler: In post_load, for each layer, we can take the three QuantizedLinear modules, extract their weight, scales, biases attributes, dequantize them to float, concatenate, requantize to 4-bit with same quantization parameters? That would change quantization error, breaking exactness.
+
+Maybe we can avoid requantization by keeping weights separate but performing a single quantized_matmul by using mlx's ability to do batched matmul? Could we stack the three weight matrices along output dimension and perform one matmul? If we could create a new QuantizedLinear whose weight is concatenation of the three packed weights, we need to repack. But we could just create a new QuantizedLinear with weight = concatenation of the three weight arrays in the packed representation. Since packing is just 8 values per uint32, concatenating the packed arrays in order should be equivalent to concatenating the original matrices, because packing is per matrix independent. If we concatenate the packed uint32 arrays in the order of q, k, v, the resulting packed array corresponds to concatenated matrix. Since packing is just a linear mapping from matrix elements to uint32, concatenation of packed arrays is equivalent to concatenation of matrices then packing. Because packing is per row? Let's think: weight shape [out, in/8] packed. Each row corresponds to out dimension. Packing maps 8 consecutive input elements to one uint32. So concatenating rows just concatenates packed rows. So if we concatenate the three weight arrays along out dimension, the resulting packed array is just concatenation of the three packed arrays. Since each matrix has same in dimension (hidden_size). So in/8 is same for all three. So we can just concatenate the weight arrays along axis 0. Similarly scales and biases concatenate along axis 0.
+
+Thus we can fuse without dequantizing! Because packing is linear and independent per row. So we can just concatenate the packed weight arrays.
+
+Great! So we can fuse qkv by concatenating their weight, scales, biases arrays.
+
+Similarly for MLP gate_proj and up_proj: both have same input dim and output dim (intermediate). So we can concatenate them.
+
+Also gate_proj in Attention could be fused with qkv? No, different usage.
+
+Let's design:
+
+For each Attention:
+- q_proj weight shape [out_q, in/8]
+- k_proj weight shape [out_k, in/8]
+- v_proj weight shape [out_v, in/8]
+All have same in dim. So we can create fused_qkv weight = concatenate([q_w, k_w, v_w], axis=0). Same for scales, biases.
+
+Then in __call__, we need to compute fused projection once, then split into q,k,v parts.
+
+We can patch Attention.__call__ to use fused projection.
+
+Implementation steps:
+
+In apply():
+- Patch Attention.__init__ to also create a flag fused_qkv = True? Or we can just patch __call__ to detect if fused module exists.
+
+Simpler: Keep __init__ unchanged, but in post_load, we replace the three Linear modules with a single fused module, and also patch the __call__ method to use fused.
+
+But we can also just patch __call__ in apply() to compute fused matmul using the three existing modules but with a single kernel? Can't.
+
+Alternative: In post_load, we can replace the three Linear modules with a new custom module that holds references to original weights and does fused matmul via concatenating weights on the fly? Could just create a new QuantizedLinear with concatenated weights as described, and replace q_proj with it, and keep k_proj and v_proj as dummy? Hmm.
+
+Simpler approach: In apply(), we monkey-patch Attention.__call__ to perform fused qkv projection using the existing three Linear modules but by manually concatenating their weights into a temporary fused weight each time? That would allocate each call, bad.
+
+Better: In post_load, we create a new fused QuantizedLinear module, copy concatenated weights, and replace q_proj with it, and modify __call__ to split.
+
+We can monkey-patch Attention.__call__ in apply() to use a fused projection if attribute fused_qkv_proj exists.
+
+Let's design:
+
+apply():
+- Save original Attention.__init__ and __call__.
+- Define new __init__ that calls original, then creates fused_qkv_proj? Hmm.
+
+Alternative simpler: In apply(), we replace Attention.__call__ with a new implementation that:
+- Computes x once
+- Performs three matmuls? Still three.
+
+Maybe we can just replace the three Linear modules with a single Linear that has concatenated weights, and update __call__ to split.
+
+Implementation plan:
+
+apply():
+- Patch Attention.__init__ to create an extra attribute self._fused_qkv = True, and also create a placeholder fused module? Hmm.
+
+Let's do two-step:
+
+1. In apply(), we patch Attention.__init__ to not create q_proj/k_proj/v_proj separately, but create a single fused linear with output dim sum. But then weight loading will fail because keys mismatch.
+
+Alternative: Keep __init__ as is, but in post_load, we will replace the three modules with a fused one, and also patch the __call__ method to use fused.
+
+We can in apply() patch Attention.__call__ to check if attribute fused_qkv_proj exists, and if so use it. If not, fall back to original.
+
+Then in post_load, for each Attention, we create fused_qkv_proj by concatenating weights, and replace q_proj with it? Or create new attribute.
+
+Simpler: In post_load, we can directly modify the model's dict to replace q_proj, k_proj, v_proj with a single module, and also modify the __call__ method globally to use it.
+
+Maybe easiest: Patch Attention.__call__ in apply() to perform fused matmul by using the three existing Linear modules but by stacking their weights into a single temporary array using mx.concatenate of their weight arrays (which are already in memory). Concatenating three uint32 arrays is cheap (just view). Then we can call mx.quantized_matmul once with concatenated weight, scales, biases. That would be one kernel launch instead of three. The concatenation of arrays is cheap (just creates a new array referencing data? mx.concatenate creates new array). Might be okay.
+
+Let's attempt: In patched __call__, we can get q_proj.weight, k_proj.weight, etc., concatenate them into fused_weight = mx.concatenate([q_w, k_w, v_w], axis=0). Same for scales, biases. Then do one quantized_matmul with x, get output, then split.
+
+That would avoid modifying weights permanently, just concatenate on the fly each call. Concatenation overhead may be small compared to matmul. Might still be beneficial.
+
+But we can pre-concatenate in post_load to avoid per-call concat.
+
+Let's pre-concatenate in post_load: for each Attention, create fused weight arrays by concatenating, store as new attributes fused_qkv_weight etc., and replace the three modules with a single fused module? Could just store fused arrays and modify __call__ to use them.
+
+Simpler: In post_load, we can replace the three Linear modules with a single Linear module that has concatenated weights. Since we can create a new nn.Linear? But nn.Linear expects weight shape etc. Could create a custom object with same interface as nn.Linear (has weight, scales, biases, group_size, bits, mode). We can just create a new nn.QuantizedLinear? Might be easier to just create a new module with same attributes.
+
+Given time, maybe the simplest high-impact change is to fuse gate_proj and up_proj in MLP, and fuse qkv in Attention. Let's implement fusion for both.
+
+Implementation details:
+
+We need to understand nn.QuantizedLinear structure. In mlx, nn.Linear is replaced by nn.QuantizedLinear. Its __call__ is mx.quantized_matmul(x, weight, scales=scales, biases=biases, transpose=True, group_size=..., bits=..., mode=...). The module has attributes weight, scales, biases, group_size, bits, mode.
+
+So we can create a new object with same attributes.
+
+Plan for Attention fusion:
+
+In apply():
+- Patch Attention.__init__ to also store original q_proj etc? Hmm.
+
+Alternative approach: Use monkey-patching of __call__ only, and in post_load we pre-concatenate weights into new arrays stored as attributes.
+
+Let's design:
+
+apply():
+- Import original Attention class.
+- Define new __call__ method for Attention that uses fused weights if present.
+
+But we need to know dimensions to split.
+
+Simpler: Let's just patch Attention.__init__ to create a fused qkv linear instead of three separate. Then we need to make weight loading work. We can make __init__ create the three original modules with dummy names, but also create fused module. Then in post_load, we can move weights from original modules into fused module? Hmm.
+
+Alternative: We can keep original modules, but in post_load we replace their weight arrays with concatenated ones and adjust __call__ to split.
+
+Maybe easiest: In post_load, for each Attention, we:
+- Get q_proj, k_proj, v_proj modules.
+- Concatenate their weight, scales, biases into new arrays.
+- Create a new QuantizedLinear-like object with those concatenated arrays.
+- Replace q_proj with this fused object, and keep k_proj and v_proj as references to slices? Could we make k_proj and v_proj point to slices of fused? Not easy.
+
+Alternative: Modify Attention.__call__ to use fused weights directly from the three modules without creating new module.
+
+Let's implement patched __call__ that does:
+- Get x
+- Compute fused weight = mx.concatenate([self.q_proj.weight, self.k_proj.weight, self.v_proj.weight], axis=0)
+- Similarly scales, biases
+- Do one quantized_matmul
+- Split output
+
+This requires concatenating three arrays each call. Concatenation of three uint32 arrays of size ~? q weight size: out_q=4096, in/8=832, so 4096*832=3.4M uint32 ~13.6 MB. k weight: 256*832=213k ~0.85 MB. v same. Total ~15 MB. Concatenating 15 MB per layer per token is expensive (memory copy). Not good.
+
+So pre-concatenate in post_load is better.
+
+Let's pre-concatenate in post_load:
+
+For each Attention:
+- w_q = self.q_proj.weight
+- w_k = self.k_proj.weight
+- w_v = self.v_proj.weight
+- fused_w = mx.concatenate([w_q, w_k, w_v], axis=0)
+- fused_scales = mx.concatenate([self.q_proj.scales, self.k_proj.scales, self.v_proj.scales], axis=0)
+- fused_biases = mx.concatenate([self.q_proj.biases, self.k_proj.biases, self.v_proj.biases], axis=0)
+
+Now we need to replace the three modules with a single one. We could create a new module object with these fused arrays, and assign it to self.q_proj, and also keep references to split sizes.
+
+Then modify __call__ to use fused projection and split.
+
+We can in apply() patch Attention.__call__ to check if attribute _fused_qkv is True, then use fused projection.
+
+Implementation steps:
+
+apply():
+- Patch Attention.__init__ to set a flag self._use_fused_qkv = True, and also create a placeholder attribute self._qkv_out_dims = []? Hmm.
+
+Better: Patch __init__ to create fused module instead of three separate. But weight loading mismatch.
+
+Alternative: Keep __init__ unchanged, but in post_load we replace the three modules with a fused one, and also patch the __call__ method globally to use fused.
+
+We can in apply() replace Attention.__call__ with a custom version that:
+- If hasattr(self, 'qkv_fused_weight'): use fused
+- else: use original
+
+Then in post_load, we create fused weights and assign them to self.qkv_fused_weight etc., and also store split sizes.
+
+Let's implement:
+
+apply():
+- Save original Attention.__call__ as _orig_call
+- Define new __call__:
+   if hasattr(self, 'qkv_fused_weight'):
+       # fused path
+       ...
+   else:
+       return _orig_call(self, x, mask, cache)
+
+Similarly for MLP fusion.
+
+For MLP fusion:
+- gate_proj and up_proj can be fused into one linear with output dim 2*intermediate.
+- Then compute silu on first half, multiply with second half.
+
+We can fuse gate and up.
+
+Implementation details for Attention fused:
+
+We need to know output sizes to split. We can compute from shapes: q_proj weight shape [out_q, in/8]. So out_q = weight.shape[0]. Similarly for k,v.
+
+In post_load, after concatenating, we can store split sizes as attributes: self.qkv_split = [out_q, out_k, out_v] (in terms of elements). Then in __call__, after matmul, we need to reshape.
+
+Original code:
+q = self.q_proj(x).reshape(B, L, n_heads, head_dim)
+k = self.k_proj(x).reshape(...)
+v = ...
+
+With fused, we get out = matmul(x) -> shape [B, L, out_total]. Then split along last dim.
+
+We can compute:
+total_out = out_q + out_k + out_v
+out = quantized_matmul(x, fused_weight, ...)
+Then q_part = out[..., :out_q]
+k_part = out[..., out_q:out_q+out_k]
+v_part = out[..., out_q+out_k:]
+
+Then reshape each.
+
+Similarly for MLP fusion:
+gate_proj and up_proj both map hidden -> intermediate.
+Fused output dim = 2*intermediate.
+Then split into gate and up.
+
+Original MLP __call__:
+return self.down_proj(nn.silu(self.gate_proj(x)) * self.up_proj(x))
+
+With fused:
+proj = fused(x) -> shape [..., 2*intermediate]
+gate = proj[..., :intermediate]
+up = proj[..., intermediate:]
+Then compute silu(gate) * up, then down_proj.
+
+This reduces two matmuls to one.
+
+Also we could fuse gate_proj and up_proj in Attention? No.
+
+Also we could fuse the two RMSNorms? Maybe not.
+
+Let's implement variant.
+
+Steps in code:
+
+NAME = "fuse_qkv_and_mlp"
+EXACT = True
+DESCRIPTION = ...
+
+def apply():
+   from mlx_lm.models.muse_glimmer import Attention, MLP
+   original_attention_call = Attention.__call__
+   original_mlp_call = MLP.__call__
+
+   def fused_attention_call(self, x, mask=None, cache=None):
+       # if fused weights not set, fallback
+       if not hasattr(self, 'qkv_fused_weight'):
+           return original_attention_call(self, x, mask, cache)
+       B, L, _ = x.shape
+       # fused matmul
+       # need to get parameters
+       # self.qkv_fused_weight, scales, biases, group_size, bits, mode
+       # Use mx.quantized_matmul
+       out = mx.quantized_matmul(
+           x,
+           self.qkv_fused_weight,
+           scales=self.qkv_fused_scales,
+           biases=self.qkv_fused_biases,
+           transpose=True,
+           group_size=self.q_proj.group_size,
+           bits=self.q_proj.bits,
+           mode=self.q_proj.mode,
+       )
+       # split
+       # sizes stored in self.qkv_splits
+       s0, s1, s2 = self.qkv_splits
+       # out shape [B, L, total]
+       q = out[..., :s0]
+       k = out[..., s0:s0+s1]
+       v = out[..., s0+s1:]
+       q = q.reshape(B, L, self.n_heads, self.head_dim)
+       k = k.reshape(B, L, self.n_kv_heads, self.head_dim)
+       v = v.reshape(B, L, self.n_kv_heads, self.head_dim)
+       # rest same as original
+       q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+       k = mx.fast.rms_norm(k, None, self.eps)
+       q = q.transpose(0,2,1,3)
+       k = k.transpose(0,2,1,3)
+       v = v.transpose(0,2,1,3)
+       if self.use_rope:
+           offset = cache.offset if cache is not None else 0
+           q = self.rope(q, offset=offset)
+           k = self.rope(k, offset=offset)
+       if cache is not None:
+           k, v = cache.update_and_fetch(k, v)
+       out_attn = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+       out_attn = out_attn.transpose(0,2,1,3).reshape(B, L, -1)
+       out_attn = out_attn * mx.sigmoid(self.gate_proj(x))
+       return self.o_proj(out_attn)
+
+   Attention.__call__ = fused_attention_call
+
+   def fused_mlp_call(self, x):
+       if not hasattr(self, 'gate_up_fused_weight'):
+           return original_mlp_call(self, x)
+       # fused matmul
+       out = mx.quantized_matmul(
+           x,
+           self.gate_up_fused_weight,
+           scales=self.gate_up_fused_scales,
+           biases=self.gate_up_fused_biases,
+           transpose=True,
+           group_size=self.gate_proj.group_size,
+           bits=self.gate_proj.bits,
+           mode=self.gate_proj.mode,
+       )
+       # split
+       inter = self.gate_proj.out_features? Need size.
+       # we can store split size
+       # assume self.mlp_intermediate_size
+       # Let's store attribute
+       # For now assume we know intermediate size from args? Hmm.
+       # We'll store in post_load.
+       ...
+
+This is getting messy.
+
+Alternative simpler: In post_load, we can actually replace the modules with new ones that have fused weights, and keep __call__ unchanged by making the modules behave like original but with fused weights? Could we make q_proj return the first part of fused output, and k_proj return second part, etc., by overriding their __call__ methods individually? That would still require three matmuls? No, we could make q_proj.__call__ actually compute fused matmul once and cache result? Could use a shared buffer.
+
+Maybe easiest is to just modify the __init__ to create fused modules, and also adjust weight loading by mapping keys. Since apply() is called before weights load, we can change the module structure so that weight loading maps correctly. If we change __init__ to create a single fused linear with name 'qkv_proj' instead of three separate, the weight loading will look for keys 'q_proj.weight' etc., which won't exist, so loading will fail.
+
+Alternative: Keep module names same, but make each module's __call__ share computation. Could use a trick: make q_proj, k_proj, v_proj all reference the same underlying fused module, and their __call__ methods slice output. But they would each still call quantized_matmul separately.
+
+Hmm.
+
+Maybe we can just fuse at the weight level and keep the same module names by replacing each module's weight with a view that is a slice of fused weight. But quantized_matmul expects weight array, not view? Could use mx.slice? Might be okay.
+
+Simpler: Let's just implement fusion by replacing the three Linear modules with a single fused module and also patch __call__ to use it. We'll also need to ensure that the original modules are still present for weight loading? Wait weight loading happens after apply() but before post_load. The model is instantiated, then weights are loaded into the model dict. If we changed __init__ to create different modules, the weight loading will try to load weights into those modules using the key mapping. The loader probably matches by module path. If we changed module names, loading will fail.
+
+Thus we must keep module names and structure as original for loading to succeed. Then in post_load, we can modify the modules in place.
+
+We can in post_load, for each Attention, we can replace the weight arrays of q_proj, k_proj, v_proj with slices of a fused array, and make their __call__ methods share computation via a cache? Could we make q_proj, k_proj, v_proj all point to the same underlying fused weight, and their __call__ methods just slice the output? That would still require three matmuls.
+
+Alternative: We can keep the three modules, but replace their __call__ methods with a shared computation that does one matmul and caches result for the three calls within same Attention.__call__. Since Attention.__call__ calls self.q_proj(x), self.k_proj(x), self.v_proj(x) sequentially. We could make q_proj.__call__ compute fused matmul and store result in a temporary attribute, and k_proj.__call__ and v_proj.__call__ just slice from that cached result. That would require modifying the Linear modules' __call__ methods.
+
+We can in apply() patch nn.QuantizedLinear.__call__? No, we want per module.
+
+Simpler: Patch Attention.__call__ to compute fused matmul once, and then manually compute q,k,v from that result, bypassing self.q_proj etc. That's what we started.
+
+We can keep self.q_proj, self.k_proj, self.v_proj unchanged for weight loading, but in Attention.__call__ we don't use them; we use fused weights we created in post_load.
+
+So plan:
+
+apply():
+- Patch Attention.__call__ to check for fused attributes, and if present, use fused path, else fallback.
+
+post_load(model):
+- Iterate over model.model.layers (DecoderLayer)
+- For each layer's self_attn (Attention):
+   - Get q_proj, k_proj, v_proj
+   - Concatenate weights, scales, biases
+   - Store fused arrays as attributes on self_attn: qkv_fused_weight, qkv_fused_scales, qkv_fused_biases
+   - Store split sizes
+   - Also we may want to keep original modules for fallback? Not needed.
+
+Similarly for MLP:
+- Fuse gate_proj and up_proj.
+
+We also need to ensure that the original modules are still present (for gate_proj in Attention, o_proj, etc.) That's fine.
+
+Implementation details for Attention fused path:
+
+In fused_attention_call, we need to know group_size, bits, mode. We can get from self.q_proj.
+
+We also need to know n_heads, head_dim, etc., which are attributes.
+
+We also need to use self.gate_proj(x) for gating, which is separate.
+
+Implementation steps in code:
+
+apply():
+   from mlx_lm.models.muse_glimmer import Attention, MLP
+   from mlx_lm.models.base import scaled_dot_product_attention
+   import mlx.core as mx
+
+   orig_attn_call = Attention.__call__
+   def new_attn_call(self, x, mask=None, cache=None):
+       if not hasattr(self, 'qkv_fused_weight'):
+           return orig_attn_call(self, x, mask, cache)
+       B, L, _ = x.shape
+       # fused matmul
+       out = mx.quantized_matmul(
+           x,
+           self.qkv_fused_weight,
+           scales=self.qkv_fused_scales,
+           biases=self.qkv_fused_biases,
+           transpose=True,
+           group_size=self.q_proj.group_size,
+           bits=self.q_proj.bits,
+           mode=self.q_proj.mode,
+       )
+       # split
+       s0, s1, s2 = self.qkv_splits
+       q = out[..., :s0]
+       k = out[..., s0:s0+s1]
+       v = out[..., s0+s1:]
+       # reshape
+       q = q.reshape(B, L, self.n_heads, self.head_dim)
+       k = k.reshape(B, L, self.n_kv_heads, self.head_dim)
+       v = v.reshape(B, L, self.n_kv_heads, self.head_dim)
+       # rest same
+       q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+       k = mx.fast.rms_norm(k, None, self.eps)
+       q = q.transpose(0,2,1,3)
+       k = k.transpose(0,2,1,3)
+       v = v.transpose(0,2,1,3)
+       if self.use_rope:
+           offset = cache.offset if cache is not None else 0
+           q = self.rope(q, offset=offset)
+           k = self.rope(k, offset=offset)
+       if cache is not None:
+           k, v = cache.update_and_fetch(k, v)
+       out_attn = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+       out_attn = out_attn.transpose(0,2,1,3).reshape(B, L, -1)
+       out_attn = out_attn * mx.sigmoid(self.gate_proj(x))
+       return self.o_proj(out_attn)
+   Attention.__call__ = new_attn_call
+
+Similarly for MLP.
+
+For MLP fused:
+
+orig_mlp_call = MLP.__call__
+def new_mlp_call(self, x):
+   if not hasattr(self, 'gate_up_fused_weight'):
+       return orig_mlp_call(self, x)
+   out = mx.quantized_matmul(
+       x,
+       self.gate_up_fused_weight,
+       scales=self.gate_up_fused_scales,
+       biases=self.gate_up_fused_biases,
+       transpose=True,
+       group_size=self.gate_proj.group_size,
+       bits=self.gate_proj.bits,
+       mode=self.gate_proj.mode,
+   )
+   # split
+   inter = self.mlp_intermediate_size  # we need to store
+   gate = out[..., :inter]
+   up = out[..., inter:]
+   # compute
+   return self.down_proj(mx.silu(gate) * up)
+
+We need to store mlp_intermediate_size.
+
+In post_load, for each MLP:
+- gate_proj weight, up_proj weight
+- concatenate
+- store fused arrays
+- store intermediate size
+
+Also need to ensure down_proj remains.
+
+Now implement post_load:
+
+def post_load(model):
+   # iterate layers
+   for layer in model.model.layers:
+       attn = layer.self_attn
+       # fuse qkv
+       q_w = attn.q_proj.weight
+       k_w = attn.k_proj.weight
+       v_w = attn.v_proj.weight
+       fused_w = mx.concatenate([q_w, k_w, v_w], axis=0)
+       fused_scales = mx.concatenate([attn.q_proj.scales, attn.k_proj.scales, attn.v_proj.scales], axis=0)
+       fused_biases = mx.concatenate([attn.q_proj.biases, attn.k_proj.biases, attn.v_proj.biases], axis=0)
+       attn.qkv_fused_weight = fused_w
+       attn.qkv_fused_scales = fused_scales
+       attn.qkv_fused_biases = fused_biases
+       # splits
+       s0 = q_w.shape[0]
+       s1 = k_w.shape[0]
+       s2 = v_w.shape[0]
+       attn.qkv_splits = (s0, s1, s2)
+       # also need to keep group_size etc. Already in q_proj.
+
+       # fuse MLP
+       mlp = layer.mlp
+       g_w = mlp.gate_proj.weight
+       u_w = mlp.up_proj.weight
+       fused_w_mlp = mx.concatenate([g_w, u_w], axis=0)
+       fused_scales_mlp = mx.concatenate([mlp.gate_proj.scales, mlp.up_proj.scales], axis=0)
+       fused_biases_mlp = mx.concatenate([mlp.gate_proj.biases, mlp.up_proj.biases], axis=0)
+       mlp.gate_up_fused_weight = fused_w_mlp
+       mlp.gate_up_fused_scales = fused_scales_mlp
+       mlp.gate_up_fused_biases = fused_biases_mlp
+       # store intermediate size
+       # intermediate size = g_w.shape[0] (out dim)
+       inter = g_w.shape[0]
+       mlp.mlp_intermediate_size = inter
+
+Also need to ensure mx.eval to materialize? Might be lazy. Could call mx.eval on fused arrays to force allocation? Might be okay.
+
+Potential issue: The original q_proj, k_proj, v_proj modules still exist and their weights are still in memory, so memory usage increases (duplicate). That's okay? Peak memory must stay under 25 GB. Original weights ~16 GB. Duplicating qkv weights (~15 MB per layer *52 = ~780 MB) plus MLP fusion (~? gate+up ~ 2*19968*6656/8? Actually weight size ~? Might be ~ few hundred MB). Could be okay under 25 GB. But we also keep original weights, so memory increases. Might exceed? Let's estimate: qkv weights per layer: q 4096*832=3.4M uint32 =13.6 MB, k 256*832=0.85 MB, v 0.85 MB => ~15.3 MB. Times 52 = 795 MB. Duplicating adds ~795 MB. MLP gate+up each: intermediate 19968, hidden 6656, in/8=832, out=19968 => 19968*832=16.6M uint32 =66.4 MB each. Two of them =132.8 MB per layer. Times 52 = 6.9 GB. Duplicating adds 6.9 GB. Total extra ~7.7 GB, plus original 16 GB =23.7 GB, still under 25 GB. Might be okay.
+
+But we could avoid keeping original weights by deleting them? Could set them to None to free memory. Might be okay.
+
+Alternative to avoid duplication: we could just replace the weight arrays in place by concatenating and assigning back to q_proj.weight etc., and modify __call__ to slice? Hmm.
+
+Maybe acceptable.
+
+Potential correctness: The fused matmul uses same group_size, bits, mode. Should be identical.
+
+Need to ensure that the order of concatenation matches the split. Yes.
+
+For MLP, we need to ensure that gate_proj and up_proj have same group_size etc. They should.
+
+Also need to ensure that the fused matmul output shape matches expectation: quantized_matmul expects x shape [B, L, hidden], weight shape [out, in/8]. Output shape [B, L, out]. Good.
+
+Now implement variant file.
+
+Edge cases: Attention.__call__ also uses self.gate_proj(x) for gating. That's separate linear, not fused. Could we also fuse gate_proj with qkv? No.
+
+Potential improvement: Also fuse gate_proj in Attention with qkv? Could fuse all 5? Might be more.
+
+But let's start with qkv and MLP fusion.
+
+Also we could fuse the two RMSNorms? Not.
+
+Let's produce final code.
+
+Need to import scaled_dot_product_attention from .base.
+
+In apply, we need to import scaled_dot_product_attention.
+
+Implementation details for new_attn_call: need to import scaled_dot_product_attention inside function or at top.
+
+Let's craft final variant file.
+
+Potential bug: In original Attention.__call__, after computing out_attn, they do out = out * mx.sigmoid(self.gate_proj(x)). Then return self.o_proj(out). Our fused version does same.
+
+But we also need to ensure that self.o_proj is still used.
+
+Also need to ensure that self.scale is same.
+
+Now implement.
+
+Potential issue: The original Attention.__call__ does q = self.q_proj(x).reshape... etc. Our fused version does reshape after split. Need to ensure reshape dimensions match. q shape after matmul: [B, L, s0]. s0 = out_q = n_heads * head_dim = 4096. Reshape to [B, L, n_heads, head_dim] works.
+
+k shape: s1 = n_kv_heads * head_dim = 256. Reshape to [B, L, n_kv_heads, head_dim] works.
+
+v same.
+
+Good.
+
+For MLP fused: original gate_proj output shape [B, L, intermediate]. up_proj same. After fused, out shape [B, L, 2*intermediate]. Split.
+
+Now implement post_load to also eval fused arrays to ensure they are materialized? Might be lazy, but fine.
+
+Potential issue: mx.concatenate of quantized weights may produce array with same dtype (uint32). Good.
+
+Now produce final answer with explanation and code.
+
+Let's craft final output.<|eom|><|start|>assistant to=user<|message|>The idea is to replace the three separate Q/K/V projections and the two MLP projections with a single quantized matmul per group. The packed 4-bit weights are concatenated along the output dimension, so the total amount of data read stays the same but the number of GPU kernel launches and the overhead of three separate `quantized_matmul` calls is removed. The same transformation is applied to the MLP `gate_proj`/`up_proj` pair. The original modules are kept for weight loading, the fused arrays are built in `post_load` and used by patched `__call__` implementations.
+
+```python
+"""fuse_qkv_mlp — fuse QKV and MLP projections to reduce kernel launches."""
+
+NAME = "fuse_qkv_mlp"
+EXACT = True
+DESCRIPTION = "Fuse QKV projections in Attention and gate/up projections in MLP into single quantized matmuls."
+
+def apply():
+    import mlx.core as mx
+    from mlx_lm.models.muse_glimmer import Attention, MLP
+    from mlx_lm.models.base import scaled_dot_product_attention
+
+    _orig_attn_call = Attention.__call__
+    _orig_mlp_call = MLP.__call__
+
+    def fused_attention_call(self, x, mask=None, cache=None):
+        if not hasattr(self, "qkv_fused_weight"):
+            return _orig_attn_call(self, x, mask, cache)
+
+        B, L, _ = x.shape
+        out = mx.quantized_matmul(
+            x,
+            self.qkv_fused_weight,
+            scales=self.qkv_fused_scales,
+            biases=self.qkv_fused_biases,
+            transpose=True,
+            group_size=self.q_proj.group_size,
+            bits=self.q_proj.bits,
+            mode=self.q_proj.mode,
+        )
+        s0, s1, s2 = self.qkv_splits
+        q = out[..., :s0]
+        k = out[..., s0:s0 + s1]
+        v = out[..., s0 + s1:]
+
+        q = q.reshape(B, L, self.n_heads, self.head_dim)
+        k = k.reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = v.reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        out_attn = scaled_dot_product_attention(
+            q, k, v, cache=cache, scale=self.scale, mask=mask
+        )
+        out_attn = out_attn.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out_attn = out_attn * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out_attn)
+
+    def fused_mlp_call(self, x):
+        if not hasattr(self, "gate_up_fused_weight"):
+            return _orig_mlp_call(self, x)
+
+        out = mx.quantized_matmul(
+            x,
+            self.gate_up_fused_weight,
+            scales=self.gate_up_fused_scales,
+            biases=self.gate_up_fused_biases,
+            transpose=True,
+            group_size=self.gate_proj.group_size,
+            bits=self.gate_proj.bits,
+            mode=self.gate_proj.mode,
+        )
+        inter = self.mlp_intermediate_size
+        gate = out[..., :inter]
+        up = out[..., inter:]
+        return self.down_proj(mx.silu(gate) * up)
+
+    Attention.__call__ = fused_attention_call
+    MLP.__call__ = fused_mlp_call
+
+
+def post_load(model):
+    import mlx.core as mx
+
+    # Fuse QKV and MLP projections
+    for layer in model.model.layers:
+        attn = layer.self_attn
+
+        # Attention QKV fusion
+        q_w = attn.q_proj.weight
+        k_w = attn.k_proj.weight
+        v_w = attn.v_proj.weight
+        attn.qkv_fused_weight = mx.concatenate([q_w, k_w, v_w], axis=0)
+        attn.qkv_fused_scales = mx.concatenate(
+            [attn.q_proj.scales, attn.k_proj.scales, attn.v_proj.scales], axis=0
+        )
+        attn.qkv_fused_biases = mx.concatenate(
+            [attn.q_proj.biases, attn.k_proj.biases, attn.v_proj.biases], axis=0
+        )
+        attn.qkv_splits = (q_w.shape[0], k_w.shape[0], v_w.shape[0])
+
+        # MLP gate/up fusion
+        mlp = layer.mlp
+        g_w = mlp.gate_proj.weight
+        u_w = mlp.up_proj.weight
+        mlp.gate_up_fused_weight = mx.concatenate([g_w, u_w], axis=0)
+        mlp.gate_up_fused_scales = mx.concatenate(
+            [mlp.gate_proj.scales, mlp.up_proj.scales], axis=0
+        )
+        mlp.gate_up_fused_biases = mx.concatenate(
+            [mlp.gate_proj.biases, mlp.up_proj.biases], axis=0
+        )
+        mlp.mlp_intermediate_size = g_w.shape[0]
+
+    # Materialize fused arrays
+    # (optional, helps avoid lazy concat overhead on first use)
+    # No explicit eval needed; MLX will evaluate on first use.
+    pass
+```
