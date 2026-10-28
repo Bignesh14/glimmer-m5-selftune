@@ -18,3 +18,4 @@ time,run_id,arm,strength,attempt,variant,gen_tokens,reasoning_tokens,gen_seconds
 2026-10-28 11:05:56,guided_medium_p2_20261028-072922_refine_20261028-110556,guided,medium,1,g_guided_medium_10281105_r1,6203,4781,254.2,True,REJECTED,-,name not allowed: __import__; name not allowed: __import__; name not allowed: __import__; name not allowed: __import__; name not allowed: __import__
 2026-10-28 11:10:14,guided_medium_p2_20261028-072922_refine_20261028-110556,guided,medium,2,g_guided_medium_10281110_r2,2223,882,100.1,True,ok,"FAIL (variant claims bit-exact, output differs)",
 2026-10-28 11:12:46,guided_medium_p2_20261028-072922_refine_20261028-110556,guided,medium,3,g_guided_medium_10281112_r3,3966,3407,171.1,True,ok,PASS (bit-exact),
+2026-10-28 13:40:04,guided_medium_p2_20261028-072922_refine_20261028-134004,guided,medium,1,g_guided_medium_10281340_r1,1813,1177,87.2,True,ok,PASS (bit-exact),

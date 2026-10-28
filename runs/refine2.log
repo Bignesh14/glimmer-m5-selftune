@@ -1,0 +1,14 @@
+run guided_medium_p2_20261028-072922_refine_20261028-134004: arm=guided strength=medium attempts=3
+
+=== attempt 1: asking Glimmer (g_guided_medium_10281340_r1)
+PROPOSE {"prompt_tokens": 12747, "gen_tokens": 1813, "gen_seconds": 87.2, "hit_max_tokens": false, "peak_mem_gb": 16.7, "reasoning_tokens": 1177, "variant": "g_guided_medium_10281340_r1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_guided_medium_10281340_r1
+variant g_guided_medium_10281340_r1 (3d7ceac2fca1) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+
+PASS: g_guided_medium_10281340_r1 is correct. It stays in bench/variants/.
+Race it with:  python bench/ab.py --a v0_original --b g_guided_medium_10281340_r1 --pairs 6

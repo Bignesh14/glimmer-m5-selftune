@@ -1,0 +1,13 @@
+MEASURED RESULTS FOR YOUR LAST VARIANT (r3: fused MLP gate/up only, original MLP weights freed):
+- Correctness: PASS, bit-identical to the original on all 4 test prompts.
+- Memory: peak including loading and the first forward pass 16.1 to 16.7 GB (original: 15.8 GB). Under the limit.
+- Speed, 2 independent races, 12 paired runs per case:
+  * decode: +0.17% faster (faster in 12 of 12 pairs). ACCEPTED - this is now the best verified version.
+  * prompt processing, 4K tokens: +0.32% faster (12 of 12 pairs).
+  * prompt processing, 1K tokens (1080-token prompt): -0.74% SLOWER (slower in 12 of 12 pairs).
+  For comparison, your earlier variant that fused q/k/v as well gave decode +0.23%, 1K -0.42%, 4K +0.40%,
+  but it was not bit-identical and used 26 GB.
+
+YOUR NEXT TASK: improve on r3. Keep everything that passed (bit-identical output, memory under 25 GB, the decode
+speedup) and remove or reduce the 1K-token prompt slowdown. If you change the approach, explain why you expect it
+to help. Reply with a short explanation, then the COMPLETE variant file in ONE ```python block.
