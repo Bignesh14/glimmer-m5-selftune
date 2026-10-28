@@ -1,0 +1,204 @@
+ to=self<|message|>YOUR NEXT TASK: get best of both - bit-identical output, decode speedup, NO prompt-processing slowdown at any length, AND memory close to original (no second full copy of gate/up weights). Explain why expect approach to work, then give COMPLETE variant file.
+
+We need bit-identical, decode speedup, no prompt slowdown, memory close to original.
+
+Previous r3 fused MLP gate/up only, freed original weights, memory +0.3-0.9 GB, decode +0.17%, 4K +0.32%, 1K -0.74% slower.
+
+The slowdown at 1K is due to fused matmul being less efficient for longer sequences? Maybe kernel launch overhead vs compute? Actually fused reduces launches, should be faster. Maybe the fused weight is larger, causing more memory traffic? Hmm.
+
+Alternative: fuse only for decode but free original weights? Can't free if need fallback. Need memory close to original, so cannot keep both copies.
+
+Idea: fuse in-place by reusing the weight buffer of one of the projections, overwriting it with concatenated data, and keep the other projection's buffer as scratch? Or we can fuse by modifying the weight in place: replace gate_proj.weight with concatenated, and move up_proj weights into same buffer? Could we reuse gate_proj.weight memory to store concatenated? That would require resizing, not possible.
+
+Alternative: use lazy fusion: build fused weight on demand for decode only, and discard after use? Could compute fused weight on the fly from original weights each decode step? That would be expensive.
+
+Better: keep original weights, but for decode we can perform two quantized matmuls but fuse them via a custom kernel? Hmm.
+
+Alternative approach: precompute 1+weight for CenteredRMSNorm? Already rejected duplicate.
+
+Maybe fuse QKV? That gave decode +0.23% but memory over.
+
+We need decode speedup without prompt slowdown and memory close.
+
+Maybe the 1K slowdown is due to using fused matmul for prompt processing where sequence length >1, causing larger intermediate activation memory leading to extra memory traffic? Could we conditionally fuse only when L==1, but avoid keeping second copy by reusing the original weight buffers in-place? We can replace gate_proj.weight with concatenated version, and store up_proj weights somewhere else temporarily, then restore? Could we swap weights in place: concatenate into gate_proj.weight buffer by overwriting it with concatenated data, and keep up_proj weights in a temporary variable that we free? But we need up_proj weights for fallback? If we only use fused for L==1, we could keep original weights but not duplicate them: we can compute fused matmul by doing two matmuls but with a single kernel launch via custom? Hmm.
+
+Alternative: use the same trick as before but free original weights after building fused, and for prompt processing we can still use fused? The slowdown might be because fused matmul is slower for longer sequences due to larger output size causing more memory bandwidth? Wait fused reduces memory reads? Actually reading two weights vs one concatenated weight: reading same total bytes, but one kernel launch vs two. For longer sequences, compute dominates, launch overhead less important, so maybe fused is slower due to larger contiguous read causing cache misses? Hmm.
+
+Maybe we can fuse only the gate_proj and up_proj into one matmul but keep the original weights by reusing the memory of gate_proj.weight to store concatenated, and keep up_proj weights in a small buffer that we can reconstruct? Could we store up_proj weights inside gate_proj.scales? No.
+
+Alternative: use in-place concatenation by overwriting gate_proj.weight with concatenated, and move up_proj weights into gate_proj.scales? No.
+
+Simpler: keep fused weights but free original weights to save memory, and for prompt processing use the fused path but with a trick to avoid slowdown: maybe the slowdown is due to the fused matmul being larger, causing the quantized_matmul kernel to take a different code path. Could we keep the original weights but for decode we temporarily replace them with fused? That would require swapping.
+
+Idea: In post_load, we build fused weights but we don't keep original weights; we just replace gate_proj.weight with fused, and store up_proj weights inside gate_proj.biases? No.
+
+Alternative approach: fuse MLP gate/up by modifying the Linear module to perform two matmuls in one call without extra memory. Could we monkey-patch nn.QuantizedLinear.__call__ to detect when it's gate_proj/up_proj and fuse? Complex.
+
+Maybe we can fuse by using the existing weight buffer of gate_proj to store concatenated data, and keep up_proj weights in a separate small buffer that we can reconstruct from gate_proj? Not possible.
+
+Another idea: use the fact that gate_proj and up_proj have same shape. Concatenating them along output dimension doubles output size. Could we instead keep gate_proj weight as is, and modify up_proj to read from gate_proj weight with offset? Could we create a view? MLX arrays are immutable? Could we create a new array that references both? Not easy.
+
+Alternative: Use the same fused approach as r3 but only for decode, and free original weights to keep memory low. The 1K slowdown might be because fused matmul is slower for longer sequences due to larger tile? Could we make the fused path also use original weights for L>1? That's what we did with L==1 check, but we kept both copies causing memory blow.
+
+We can keep both copies but free original weights after building fused? Wait we need original for fallback. Could we reconstruct original weights from fused on demand? Since fused is concatenation, we can slice fused to get original. So we don't need to keep original weights! We can just keep fused weight, and for prompt processing we can slice fused weight to get gate and up parts, then do two matmuls. That would avoid second copy and still allow fallback.
+
+So approach: build fused weight, free original weights (gate_proj.weight = None etc). In __call__, if L==1 use fused matmul directly. If L>1, we can slice fused weight back into two parts and do two matmuls. Slicing a MLX array is cheap (view). So we keep only fused weight, memory saved.
+
+Similarly for attention? We only fused MLP.
+
+Thus we have memory close to original (only fused weight replaces two weights, size ~ same as sum, so memory similar to original sum, not double). Actually original had two weights, fused is sum size, so memory same as original sum. Freeing originals and keeping fused means memory ~ same as original (maybe slightly more due to concatenation overhead). Good.
+
+And we can use fused for decode, and for prompt we slice and do two matmuls, which should be same as original.
+
+Let's implement: post_load builds fused weight, frees original weights. In fused_mlp_call, if L==1 use fused matmul, else slice fused weight into two parts and do two quantized_matmuls separately (or just call original logic using slices). Since we freed original weights, we need to reconstruct.
+
+Simpler: always use fused weight, but for L>1 we can still use fused matmul then split? That would be same as fused path, which caused slowdown. So we need different path for L>1.
+
+We can in __call__, if L==1 use fused matmul, else we can perform two separate quantized_matmuls using slices of fused weight. That avoids slowdown and keeps memory low.
+
+Implementation steps:
+
+post_load:
+- for each mlp:
+  - save group_size etc
+  - g_w, u_w
+  - fused_weight = concatenate
+  - fused_scales = concatenate
+  - fused_biases = concatenate
+  - store as attributes
+  - free original weights (set to None)
+
+In fused_mlp_call:
+- if not hasattr -> original
+- if x.shape[1]==1:
+   do fused matmul as before
+- else:
+   # slice fused weight
+   # we need to do two matmuls: gate and up
+   # we can slice fused weight, scales, biases
+   # But slicing quantized weight is tricky: weight is uint32 packed. Slicing along axis 0 is okay? Concatenation along axis 0 means first part corresponds to gate, second to up. So we can slice fused weight to get first half and second half.
+   # Then do two quantized_matmuls separately.
+   # This should be bit-identical to original.
+
+We need to know split size. Store mlp_intermediate_size.
+
+Implementation details: need to slice fused arrays. Use mx.split? We can use slicing: fused_weight[:inter] etc. But fused_weight shape is [2*inter, in/8]? Actually weight shape [out, in/8]. So slicing axis 0 works.
+
+Similarly scales and biases.
+
+Then do two quantized_matmuls.
+
+This should be bit-identical because slicing is exact.
+
+Memory: we keep fused weight only, no original.
+
+Let's craft final variant.
+
+Also need to ensure we don't keep original weights, so memory close.
+
+Let's produce final file.
+
+<|eom|><|start|>assistant to=user<|message|>```python
+"""fuse_mlp_decode_only_inplace — fuse MLP gate/up in-place, decode-only path."""
+
+NAME = "fuse_mlp_decode_only_inplace"
+EXACT = True
+DESCRIPTION = "Fuse MLP gate/up in-place, use fused matmul for L==1 only, slice fused weight for prompts."
+
+def apply():
+    import mlx.core as mx
+    import mlx.nn as nn
+    from mlx_lm.models.muse_glimmer import MLP
+
+    _orig_mlp_call = MLP.__call__
+
+    def fused_mlp_call(self, x):
+        if not hasattr(self, "gate_up_fused_weight"):
+            return _orig_mlp_call(self, x)
+
+        # Decode path: single fused quantized matmul
+        if x.shape[1] == 1:
+            out = mx.quantized_matmul(
+                x,
+                self.gate_up_fused_weight,
+                scales=self.gate_up_fused_scales,
+                biases=self.gate_up_fused_biases,
+                transpose=True,
+                group_size=self.gate_up_group_size,
+                bits=self.gate_up_bits,
+                mode=self.gate_up_mode,
+            )
+            inter = self.mlp_intermediate_size
+            gate = out[..., :inter]
+            up = out[..., inter:]
+            return self.down_proj(nn.silu(gate) * up)
+
+        # Prompt path: slice fused weight back to two projections
+        # This avoids the 1K slowdown while keeping only one copy of weights
+        inter = self.mlp_intermediate_size
+        # slice fused buffers
+        w_gate = self.gate_up_fused_weight[:inter]
+        w_up = self.gate_up_fused_weight[inter:]
+        s_gate = self.gate_up_fused_scales[:inter]
+        s_up = self.gate_up_fused_scales[inter:]
+        b_gate = self.gate_up_fused_biases[:inter]
+        b_up = self.gate_up_fused_biases[inter:]
+
+        gate = mx.quantized_matmul(
+            x,
+            w_gate,
+            scales=s_gate,
+            biases=b_gate,
+            transpose=True,
+            group_size=self.gate_up_group_size,
+            bits=self.gate_up_bits,
+            mode=self.gate_up_mode,
+        )
+        up = mx.quantized_matmul(
+            x,
+            w_up,
+            scales=s_up,
+            biases=b_up,
+            transpose=True,
+            group_size=self.gate_up_group_size,
+            bits=self.gate_up_bits,
+            mode=self.gate_up_mode,
+        )
+        return self.down_proj(nn.silu(gate) * up)
+
+    MLP.__call__ = fused_mlp_call
+
+
+def post_load(model):
+    import mlx.core as mx
+
+    for layer in model.model.layers:
+        mlp = layer.mlp
+        gs_m = mlp.gate_proj.group_size
+        bits_m = mlp.gate_proj.bits
+        mode_m = mlp.gate_proj.mode
+
+        g_w = mlp.gate_proj.weight
+        u_w = mlp.up_proj.weight
+
+        # Build one fused copy, then discard the two originals
+        mlp.gate_up_fused_weight = mx.concatenate([g_w, u_w], axis=0)
+        mlp.gate_up_fused_scales = mx.concatenate(
+            [mlp.gate_proj.scales, mlp.up_proj.scales], axis=0
+        )
+        mlp.gate_up_fused_biases = mx.concatenate(
+            [mlp.gate_proj.biases, mlp.up_proj.biases], axis=0
+        )
+        mlp.mlp_intermediate_size = g_w.shape[0]
+        mlp.gate_up_group_size = gs_m
+        mlp.gate_up_bits = bits_m
+        mlp.gate_up_mode = mode_m
+
+        # Free originals to keep memory close to baseline
+        mlp.gate_proj.weight = None
+        mlp.gate_proj.scales = None
+        mlp.gate_proj.biases = None
+        mlp.up_proj.weight = None
+        mlp.up_proj.scales = None
+        mlp.up_proj.biases = None
+```

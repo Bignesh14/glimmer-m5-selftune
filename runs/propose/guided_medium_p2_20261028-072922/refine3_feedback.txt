@@ -1,0 +1,17 @@
+MEASURED RESULTS FOR YOUR LAST VARIANT (fused MLP gate/up used only when L == 1; original weights kept for prompts):
+- Correctness: PASS, bit-identical on all 4 test prompts.
+- Speed, 2 independent races, 12 paired runs per case:
+  * decode: +0.17% and +0.20% faster (12 of 12 pairs).
+  * prompt processing 1K tokens: no difference from the original any more (the -0.74% slowdown is gone).
+  * prompt processing 4K tokens: no difference (r3's +0.32% gain is also gone, because prompts use the original path).
+- Memory: peak including loading 23.5 GB, versus 16.1-16.7 GB for r3 and 15.8 GB for the original.
+  Your estimate "~132 MB, negligible" was for ONE layer; the model has 52 layers, so the second copy of the
+  gate/up weights costs about 7.6 GB.
+
+So there are now two accepted versions with a trade-off:
+  r3:  decode +0.17%, 4K +0.32%, 1K -0.74%, memory +0.3 to +0.9 GB
+  you: decode +0.17 to +0.20%, 1K and 4K unchanged, memory +7.6 GB
+
+YOUR NEXT TASK: get the best of both - bit-identical output, the decode speedup, NO prompt-processing slowdown at
+any length, AND memory close to the original (no second full copy of the gate/up weights). Explain why you expect
+your approach to work, then give the COMPLETE variant file in ONE ```python block.
