@@ -1,0 +1,12 @@
+models/
+glimmer/.venv/
+__pycache__/
+*.pyc
+glimmer/
+runs_terminal.txt
+prompts/
+KICKSTART_PROMPT.md
+HACKATHON_LOG.md
+.DS_Store
+.venv/
+runs/bench/golden/
