@@ -1,0 +1,4 @@
+device Device(gpu, 0) | window 16
+context  12 (below window ): max |logprob diff|  B-A 7.94e-04   C-A 7.94e-04
+context  60 (beyond window): max |logprob diff|  B-A 7.95e-04   C-A 5.34e-04
+raw float32 matmul: |3-row - 1-row| 2.27e-02   |3-row - CPU| 2.27e-02   |1-row - CPU| 3.81e-06
