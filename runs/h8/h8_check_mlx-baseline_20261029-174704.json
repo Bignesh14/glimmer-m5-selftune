@@ -1,0 +1,42 @@
+{
+  "time": "2026-10-29 17:47:04",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "mode": "mlx-baseline",
+  "tie_tol": 0.125,
+  "k": 2,
+  "n_min": 2,
+  "results": [
+    {
+      "case": "chat",
+      "mode": "mlx-baseline",
+      "wrong": 0,
+      "ties": 1,
+      "worst_margin": 0.0,
+      "first_wrongs": []
+    },
+    {
+      "case": "code",
+      "mode": "mlx-baseline",
+      "wrong": 0,
+      "ties": 1,
+      "worst_margin": 0.125,
+      "first_wrongs": []
+    },
+    {
+      "case": "p1024",
+      "mode": "mlx-baseline",
+      "wrong": 0,
+      "ties": 0,
+      "worst_margin": 0.0,
+      "first_wrongs": []
+    },
+    {
+      "case": "p4096",
+      "mode": "mlx-baseline",
+      "wrong": 0,
+      "ties": 0,
+      "worst_margin": 0.0,
+      "first_wrongs": []
+    }
+  ]
+}

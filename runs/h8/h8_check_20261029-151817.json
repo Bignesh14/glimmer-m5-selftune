@@ -1,0 +1,86 @@
+{
+  "time": "2026-10-29 15:18:17",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "tie_tol": 0.125,
+  "k": 2,
+  "n_min": 2,
+  "results": [
+    {
+      "case": "chat",
+      "prompt_tokens": 63,
+      "tokens": 256,
+      "wrong": 1,
+      "ties": 1,
+      "worst_margin": 0.25,
+      "first_wrongs": [
+        {
+          "pos": 184,
+          "normal": 8136,
+          "h8": 14,
+          "margin": 0.25
+        }
+      ],
+      "golden_first_diff": 184,
+      "passes": 212,
+      "tok_per_pass": 1.2075471698113207,
+      "drafted_share": 0.22169811320754718,
+      "accept_rate": 0.46808510638297873
+    },
+    {
+      "case": "code",
+      "prompt_tokens": 73,
+      "tokens": 256,
+      "wrong": 0,
+      "ties": 2,
+      "worst_margin": 0.0625,
+      "first_wrongs": [],
+      "golden_first_diff": 207,
+      "passes": 212,
+      "tok_per_pass": 1.2075471698113207,
+      "drafted_share": 0.19811320754716982,
+      "accept_rate": 0.5238095238095238
+    },
+    {
+      "case": "p1024",
+      "prompt_tokens": 1080,
+      "tokens": 256,
+      "wrong": 0,
+      "ties": 0,
+      "worst_margin": 0.0,
+      "first_wrongs": [],
+      "golden_first_diff": -1,
+      "passes": 88,
+      "tok_per_pass": 2.909090909090909,
+      "drafted_share": 0.9545454545454546,
+      "accept_rate": 1.0
+    },
+    {
+      "case": "p4096",
+      "prompt_tokens": 4152,
+      "tokens": 256,
+      "wrong": 0,
+      "ties": 0,
+      "worst_margin": 0.0,
+      "first_wrongs": [],
+      "golden_first_diff": -1,
+      "passes": 132,
+      "tok_per_pass": 1.9393939393939394,
+      "drafted_share": 0.5227272727272727,
+      "accept_rate": 0.8985507246376812
+    },
+    {
+      "case": "selftune guided_high_2026102",
+      "prompt_tokens": 3531,
+      "tokens": 512,
+      "wrong": 0,
+      "ties": 1,
+      "worst_margin": 0.125,
+      "first_wrongs": [],
+      "golden_first_diff": null,
+      "passes": 385,
+      "tok_per_pass": 1.3298701298701299,
+      "drafted_share": 0.4025974025974026,
+      "accept_rate": 0.4096774193548387
+    }
+  ]
+}

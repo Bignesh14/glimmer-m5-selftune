@@ -1,0 +1,6 @@
+mlx 0.32.4 / mlx_lm 0.32.2 | model Muse-Glimmer-30B-4bit (4-bit) | weights 19414804113 bytes | MLX_ENABLE_TF32=0 | mode fp32 | K=2 n_min=2 | tie tolerance 0.125 nats | git 7774c19
+chat                         prompt    63 | 0 wrong, 0 near-ties (worst 0.000 nats) | vs golden: n/a | 1.13 tok/pass, accepted 41% | H8 23.1 tok/s incl. prefill
+code                         prompt    73 | 0 wrong, 0 near-ties (worst 0.000 nats) | vs golden: n/a | 1.21 tok/pass, accepted 55% | H8 25.9 tok/s incl. prefill
+selftune guided_high_2026102 prompt  3531 | 0 wrong, 0 near-ties (worst 0.000 nats) | vs golden: n/a | 1.45 tok/pass, accepted 59% | H8 14.1 tok/s incl. prefill
+saved runs/h8/h8_check_fp32_20261029-174548.json
+VERDICT: PASS (0 wrong tokens)

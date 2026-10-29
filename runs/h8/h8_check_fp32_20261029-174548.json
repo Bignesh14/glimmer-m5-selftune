@@ -1,0 +1,52 @@
+{
+  "time": "2026-10-29 17:45:48",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "mode": "fp32",
+  "tie_tol": 0.125,
+  "k": 2,
+  "n_min": 2,
+  "results": [
+    {
+      "case": "chat",
+      "prompt_tokens": 63,
+      "tokens": 256,
+      "wrong": 0,
+      "ties": 0,
+      "worst_margin": 0.0,
+      "first_wrongs": [],
+      "golden_first_diff": null,
+      "passes": 226,
+      "tok_per_pass": 1.1327433628318584,
+      "drafted_share": 0.16371681415929204,
+      "accept_rate": 0.40540540540540543
+    },
+    {
+      "case": "code",
+      "prompt_tokens": 73,
+      "tokens": 256,
+      "wrong": 0,
+      "ties": 0,
+      "worst_margin": 0.0,
+      "first_wrongs": [],
+      "golden_first_diff": null,
+      "passes": 212,
+      "tok_per_pass": 1.2075471698113207,
+      "drafted_share": 0.18867924528301888,
+      "accept_rate": 0.55
+    },
+    {
+      "case": "selftune guided_high_2026102",
+      "prompt_tokens": 3531,
+      "tokens": 512,
+      "wrong": 0,
+      "ties": 0,
+      "worst_margin": 0.0,
+      "first_wrongs": [],
+      "golden_first_diff": null,
+      "passes": 354,
+      "tok_per_pass": 1.4463276836158192,
+      "drafted_share": 0.3813559322033898,
+      "accept_rate": 0.5851851851851851
+    }
+  ]
+}

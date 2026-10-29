@@ -1,0 +1,7 @@
+mlx 0.32.4 / mlx_lm 0.32.2 | model Muse-Glimmer-30B-4bit (4-bit) | weights 19414804113 bytes | MLX_ENABLE_TF32=unset (default 1) | mode mlx-baseline | K=2 n_min=2 | tie tolerance 0.125 nats | git 7774c19
+chat                         prompt    63 | MLX prompt path vs MLX decoding: 0 wrong, 1 near-ties (worst 0.000 nats) over 256 tokens
+code                         prompt    73 | MLX prompt path vs MLX decoding: 0 wrong, 1 near-ties (worst 0.125 nats) over 256 tokens
+p1024                        prompt  1080 | MLX prompt path vs MLX decoding: 0 wrong, 0 near-ties (worst 0.000 nats) over 256 tokens
+p4096                        prompt  4152 | MLX prompt path vs MLX decoding: 0 wrong, 0 near-ties (worst 0.000 nats) over 256 tokens
+saved runs/h8/h8_check_mlx-baseline_20261029-174704.json
+VERDICT: PASS (0 wrong tokens)

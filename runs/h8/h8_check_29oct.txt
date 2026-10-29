@@ -1,0 +1,9 @@
+mlx 0.32.4 / mlx_lm 0.32.2 | model Muse-Glimmer-30B-4bit (4-bit) | weights 19414804113 bytes | MLX_ENABLE_TF32=unset (default 1) | K=2 n_min=2 | tie tolerance 0.125 nats | git 7774c19
+chat                         prompt    63 | 1 wrong, 1 near-ties (worst 0.250 nats) | vs golden: first differs at 184 | 1.21 tok/pass, accepted 47% | H8 28.0 tok/s incl. prefill
+    WRONG at 184: normal decoding picks 8136, H8 gave 14, margin 0.25
+code                         prompt    73 | 0 wrong, 2 near-ties (worst 0.062 nats) | vs golden: first differs at 207 | 1.21 tok/pass, accepted 52% | H8 29.8 tok/s incl. prefill
+p1024                        prompt  1080 | 0 wrong, 0 near-ties (worst 0.000 nats) | vs golden: identical | 2.91 tok/pass, accepted 100% | H8 48.2 tok/s incl. prefill
+p4096                        prompt  4152 | 0 wrong, 0 near-ties (worst 0.000 nats) | vs golden: identical | 1.94 tok/pass, accepted 90% | H8 23.3 tok/s incl. prefill
+selftune guided_high_2026102 prompt  3531 | 0 wrong, 1 near-ties (worst 0.125 nats) | vs golden: n/a | 1.33 tok/pass, accepted 41% | H8 24.2 tok/s incl. prefill
+saved runs/h8/h8_check_20261029-151817.json
+VERDICT: FAIL (1 wrong tokens)
