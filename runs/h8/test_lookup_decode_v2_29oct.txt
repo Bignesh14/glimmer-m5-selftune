@@ -1,0 +1,8 @@
+tiny Muse Glimmer: layers ['sliding_attention', 'sliding_attention', 'sliding_attention', 'full_attention'], window 16, device Device(gpu, 0), tie tolerance 0.001 nats
+ref     generate_step itself: 0 wrong, 0 near-ties (worst margin 0.00e+00 nats) | identical to generate_step | 1.00 tok/pass, accepted 0% of draft tokens
+test 1  H8 k=2            : 0 wrong, 1 near-ties (worst margin 4.72e-04 nats) | differs from generate_step at token 192 | 1.02 tok/pass, accepted 5% of draft tokens
+test 1  H8 k=4            : 0 wrong, 1 near-ties (worst margin 4.72e-04 nats) | differs from generate_step at token 192 | 1.02 tok/pass, accepted 3% of draft tokens
+test 2  forced drafts       : 0 wrong, 0 near-ties (worst margin 0.00e+00 nats) | identical to generate_step | 2.38 tok/pass, accepted 59% of draft tokens
+test 3  negative control    : 339 wrong, 0 near-ties (worst margin 6.22e-01 nats) | differs from generate_step at token 24 | 1.06 tok/pass, accepted 3% of draft tokens
+negative control CAUGHT
+VERDICT: PASS

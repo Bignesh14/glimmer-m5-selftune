@@ -1,0 +1,6 @@
+tiny Muse Glimmer: layers ['sliding_attention', 'sliding_attention', 'sliding_attention', 'full_attention'], window 16, device Device(gpu, 0)
+test 1  k=2: DIFFERENT at token 192 over 400 tokens | 1.02 tok/pass, drafted 15% of passes, accepted 5% of draft tokens
+test 1  k=4: DIFFERENT at token 192 over 400 tokens | 1.02 tok/pass, drafted 15% of passes, accepted 3% of draft tokens
+test 2  forced drafts: IDENTICAL over 400 tokens | 2.38 tok/pass, accepted 59% of draft tokens
+test 3  negative control (mlx_lm trim): caught, differs at token 3
+VERDICT: FAIL
