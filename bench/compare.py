@@ -13,7 +13,7 @@ from math import comb
 from pathlib import Path
 
 CSV_PATH = Path(__file__).resolve().parent.parent / "runs" / "bench" / "bench.csv"
-METRIC = {"decode": "gen_tps", "prefill_1k": "prompt_tps", "prefill_4k": "prompt_tps"}
+METRIC = {"decode": "gen_tps", "selftune": "gen_tps", "prefill_1k": "prompt_tps", "prefill_4k": "prompt_tps"}
 MIN_EFFECT = 0.1    # % — smallest difference we accept as real (from the 27 Oct A/A tests)
 
 

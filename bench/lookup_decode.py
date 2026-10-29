@@ -18,6 +18,8 @@ pass, the rejected tokens can therefore be removed exactly by slicing them off t
 that is what rewind() does, and it checks that the cache is in that state. Full-attention
 layers (KVCache) use their normal trim().
 """
+import time
+
 import mlx.core as mx
 from mlx_lm.models.cache import KVCache, RotatingKVCache, make_prompt_cache
 
@@ -71,9 +73,10 @@ class Drafter:
 
 
 def lookup_generate(model, prompt_ids, max_tokens, k=2, n_min=2, eos_ids=(), cache=None,
-                    rewind_fn=rewind, draft_fn=None):
+                    rewind_fn=rewind, draft_fn=None, timing=None):
     """Greedy generation of up to max_tokens tokens. Returns (tokens, stats).
-    draft_fn(out, limit) -> list replaces the n-gram drafter (used by the tests only)."""
+    draft_fn(out, limit) -> list replaces the n-gram drafter (used by the tests only).
+    timing: optional dict; filled with t_first (end of the first pass), first_pass_tokens, t_end."""
     cache = cache if cache is not None else make_prompt_cache(model)
     ids = list(prompt_ids)
     pre = ids[:-1]
@@ -95,6 +98,8 @@ def lookup_generate(model, prompt_ids, max_tokens, k=2, n_min=2, eos_ids=(), cac
         rewind_fn(cache, len(d) - a)
         new = d[:a] + [pred[a]]
         passes += 1
+        if passes % 256 == 0:
+            mx.clear_cache()                 # as mlx_lm's generate_step does
         drafted += bool(d)
         proposed += len(d)
         accepted += a
@@ -107,8 +112,13 @@ def lookup_generate(model, prompt_ids, max_tokens, k=2, n_min=2, eos_ids=(), cac
             if t in eos_ids or len(out) >= max_tokens:
                 stop = True
                 break
+        if timing is not None and passes == 1:
+            timing["t_first"] = time.perf_counter()
+            timing["first_pass_tokens"] = len(out)
         if stop:
             break
+    if timing is not None:
+        timing["t_end"] = time.perf_counter()
     stats = {"passes": passes, "tokens": len(out), "tok_per_pass": len(out) / max(passes, 1),
              "drafted_share": drafted / max(passes, 1), "accept_rate": accepted / max(proposed, 1)}
     return out, stats

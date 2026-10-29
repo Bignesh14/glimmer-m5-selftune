@@ -3,6 +3,14 @@
   python bench/run_one.py --variant v0_original --mode golden       # make the reference (once)
   python bench/run_one.py --variant v1_xxx     --mode check        # correctness vs the reference
   python bench/run_one.py --variant v1_xxx     --mode speed ...    # one timed run (ab.py calls this)
+  python bench/run_one.py --variant v0_original --mode speed --plan h8 --decoder lookup ...
+
+--plan h8 (29 Oct): only the two decode cases that matter for prompt-lookup decoding, the
+fixed code task and a recorded self-tuning prompt (bench/h8_check.py long_prompt), each
+DECODE_TOKENS tokens, with ONE timing definition for both decoders: steady-state decode rate =
+tokens after the first forward pass / time after the first forward pass (prefill and the
+first pass excluded). --decoder lookup uses bench/lookup_decode.py (K=2, n_min=2); its sha
+is recorded in notes, and the variant is recorded as "<variant>@lookup".
 
 Order inside every run: safety check -> variant.apply() -> load weights ->
 variant.post_load(model) -> the job. A fresh process per run means no state
@@ -119,6 +127,50 @@ def timed_run(model, ids, n_tokens):
     return prompt.size, prompt_tps, i + 1, gen_tps
 
 
+def timed_h8(model, ids, n_tokens, decoder):
+    """Steady-state decode rate, same definition for both decoders (see module docstring)."""
+    if decoder == "lookup":
+        from lookup_decode import lookup_generate
+        tm = {}
+        with wired_limit(model, [generation_stream]), mx.stream(generation_stream):
+            out, st = lookup_generate(model, ids, n_tokens, k=2, n_min=2, timing=tm)
+        n = len(out)
+        return n, (n - tm["first_pass_tokens"]) / (tm["t_end"] - tm["t_first"]), st
+    sampler = make_sampler(temp=0.0)
+    with wired_limit(model, [generation_stream]):
+        for i, _ in enumerate(generate_step(mx.array(ids), model, max_tokens=n_tokens, sampler=sampler)):
+            if i == 0:
+                t_first = time.perf_counter()
+        t_end = time.perf_counter()
+    return i + 1, i / (t_end - t_first), None
+
+
+def speed_h8(model, cases, a, vname, vsha, lpm):
+    from h8_check import long_prompt
+    import hashlib
+    dsha = hashlib.sha256((Path(__file__).parent / "lookup_decode.py").read_bytes()).hexdigest()[:12]
+    label = f"{vname}@lookup" if a.decoder == "lookup" else vname
+    folder, long_ids = long_prompt(cases["_hf"], C)
+    timed_h8(model, cases["chat"], 16, a.decoder)          # warm-up, not recorded
+    load_peak = mx.get_peak_memory() / 1e9
+    rows = []
+    for case, ids in (("decode", cases["code"]), ("selftune", long_ids)):
+        mx.reset_peak_memory()
+        g_tok, g_tps, st = timed_h8(model, ids, C.DECODE_TOKENS, a.decoder)
+        peak = mx.get_peak_memory() / 1e9
+        extra = (f" tok_per_pass={st['tok_per_pass']:.3f} accept={st['accept_rate']:.3f} decoder_sha={dsha}"
+                 if st else "")
+        rows.append({"timestamp": C.now(), "session": a.session, "pair": a.pair, "slot": a.slot,
+                     "variant": label, "variant_sha": vsha, "git_head": C.git_head(),
+                     "case": case, "prompt_tokens": len(ids), "prompt_tps": "",
+                     "gen_tokens": g_tok, "gen_tps": round(g_tps, 3),
+                     "peak_mem_gb": round(peak, 3), "lowpowermode": lpm, "versions": C.versions(),
+                     "notes": f"plan=h8 peak_incl_load={load_peak:.2f} selftune_prompt={folder}{extra}"})
+        print(f"{label} {case}: prompt {len(ids)} tok, gen {g_tok} @ {g_tps:.3f} tok/s (steady state), "
+              f"peak {peak:.2f} GB{extra}")
+    C.append_rows(rows)
+
+
 def speed(model, cases, a, vname, vsha, lpm):
     timed_run(model, cases["chat"], 16)                   # warm-up, not recorded
     # Peak since the process started: includes loading, post_load and the first forward pass,
@@ -151,7 +203,11 @@ def main():
     p.add_argument("--session", default="manual")
     p.add_argument("--pair", default="0")
     p.add_argument("--slot", default="-")
+    p.add_argument("--plan", default="standard", choices=["standard", "h8"])
+    p.add_argument("--decoder", default="greedy", choices=["greedy", "lookup"])
     a = p.parse_args()
+    if a.decoder == "lookup" and (a.mode != "speed" or a.plan != "h8"):
+        raise SystemExit("ABORT: --decoder lookup is only defined for --mode speed --plan h8")
 
     lpm = C.guard()
     vmod, vsha = C.load_variant(a.variant)
@@ -162,6 +218,8 @@ def main():
     model, tok = load(str(C.MODEL_DIR))
     vmod.post_load(model)                             # e.g. precompute / merge weights
     cases = build_cases(tok._tokenizer)
+    if a.plan == "h8":
+        cases["_hf"] = tok._tokenizer
 
     print(f"variant {a.variant} ({vsha}) | {C.versions()} | lowpowermode={lpm} | "
           f"weights {C.model_fingerprint()} bytes")
@@ -169,6 +227,8 @@ def main():
         golden(model, cases)
     elif a.mode == "check":
         check(model, cases, vmod, a.variant, vsha)
+    elif a.plan == "h8":
+        speed_h8(model, cases, a, a.variant, vsha, lpm)
     else:
         speed(model, cases, a, a.variant, vsha, lpm)
 

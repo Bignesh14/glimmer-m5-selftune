@@ -1,0 +1,15 @@
+session 20261029-215429   A = v0_original   B = v0_original@lookup
+
+decode      (gen_tps, 6 pairs)
+   A median    26.565   B median    29.357
+   B vs A: median +10.528 %   range +10.468 .. +10.564 %
+   noise of A alone (CV): 0.021 %   B faster in 6/6 pairs (sign test p = 0.031)
+   -> B is FASTER than A by ~10.53 %
+
+selftune    (gen_tps, 6 pairs)
+   A median    25.948   B median    28.950
+   B vs A: median +11.578 %   range +11.531 .. +11.625 %
+   noise of A alone (CV): 0.023 %   B faster in 6/6 pairs (sign test p = 0.031)
+   -> B is FASTER than A by ~11.58 %
+
+peak memory (median GB): A/decode 15.80, A/selftune 16.49, B/decode 15.80, B/selftune 16.49
