@@ -6,7 +6,8 @@
   python bench/run_one.py --variant v0_original --mode speed --plan h8 --decoder lookup ...
 
 --plan h8 (29 Oct): only the two decode cases that matter for prompt-lookup decoding, the
-fixed code task and a recorded self-tuning prompt (bench/h8_check.py long_prompt), each
+fixed code task and a recorded self-tuning prompt (default: bench/h8_check.py long_prompt;
+--selftune <id> picks another, ids from bench/prompts_index.py), each
 DECODE_TOKENS tokens, with ONE timing definition for both decoders: steady-state decode rate =
 tokens after the first forward pass / time after the first forward pass (prefill and the
 first pass excluded). --decoder lookup uses bench/lookup_decode.py (K=2, n_min=2); its sha
@@ -150,7 +151,11 @@ def speed_h8(model, cases, a, vname, vsha, lpm):
     import hashlib
     dsha = hashlib.sha256((Path(__file__).parent / "lookup_decode.py").read_bytes()).hexdigest()[:12]
     label = f"{vname}@lookup" if a.decoder == "lookup" else vname
-    folder, long_ids = long_prompt(cases["_hf"], C)
+    if a.selftune:
+        from prompts_index import get_prompt
+        folder, long_ids = get_prompt(cases["_hf"], C, a.selftune)
+    else:
+        folder, long_ids = long_prompt(cases["_hf"], C)
     timed_h8(model, cases["chat"], 16, a.decoder)          # warm-up, not recorded
     load_peak = mx.get_peak_memory() / 1e9
     rows = []
@@ -205,6 +210,8 @@ def main():
     p.add_argument("--slot", default="-")
     p.add_argument("--plan", default="standard", choices=["standard", "h8"])
     p.add_argument("--decoder", default="greedy", choices=["greedy", "lookup"])
+    p.add_argument("--selftune", default=None,
+                   help="recorded prompt id for the selftune case (python bench/prompts_index.py)")
     a = p.parse_args()
     if a.decoder == "lookup" and (a.mode != "speed" or a.plan != "h8"):
         raise SystemExit("ABORT: --decoder lookup is only defined for --mode speed --plan h8")
