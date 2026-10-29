@@ -48,6 +48,10 @@ referee caught.
 
 **Prompt-lookup decoding (H8).** Glimmer often repeats what it already wrote (code, names, phrases). H8 guesses the
 next 2 tokens from the earlier text and checks them in one forward pass, keeping the ones the model agrees with.
+The technique itself is not ours: prompt-lookup decoding was introduced by Apoorv Saxena (2023,
+github.com/apoorvumang/prompt-lookup-decoding) and is available in Hugging Face transformers
+(`prompt_lookup_num_tokens`). What we built is the measured cost model that chose its settings for this GPU, the
+exact cache rollback that makes it work with Glimmer's sliding-window layers in MLX, and the correctness evidence.
 Our first estimate said this cannot pay off on stock MLX, because a 9-token pass costs 2.3× a 1-token pass (MLX's 4-bit
 matmul reads weights at 436 GB/s for 1 token but is 2.3–4.9× slower for 5–15 tokens, `bench/qmm_probe.py`). That
 estimate was wrong: it charged every pass as a 9-token pass. Re-scoring all 21 recorded Glimmer generations with the
