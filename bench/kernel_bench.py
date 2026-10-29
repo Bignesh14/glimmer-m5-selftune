@@ -16,9 +16,15 @@ referee (1) checks the candidate's output against MLX's, (2) times both the same
 rounds, median) and reports candidate/MLX time. Target from 28 Oct: 9 tokens in <= 1.3x the
 time MLX needs for 1 token, on the MLP shapes.
 
-Correctness: bf16 output, so tiny differences from a different summation order are expected.
-A shape/M passes if max|cand - ref| <= TOL_REL * max|ref| (TOL_REL = 4e-3, about half a bf16
-step at the largest output value), and the report says whether it was bit-exact.
+Correctness (rule of 29 Oct, fixed before any Glimmer kernel was judged):
+MLX itself uses two kernels with different precision — one for 1-few tokens (used while
+generating) and a tiled one for many tokens (used for every prompt). Their outputs differ from
+each other by up to ~15 bf16 steps on ~39 % of elements, so "equal to MLX" is not a usable bar.
+Instead every output is compared with an exact float32 reference (the same 4-bit weights
+dequantized in float32, matmul in float32). A candidate PASSES if its largest error against that
+reference is at most 1.25x the larger error of MLX's own two kernels on the same input (MLX at
+this M, and MLX's prompt kernel forced by padding to 128 rows). I.e. "no less accurate than what
+MLX already ships". The report also shows bit-exactness against MLX and the bf16-step comparison.
 """
 import importlib
 import os
@@ -40,7 +46,6 @@ if os.environ.get("KERNEL_BENCH_TINY") == "1":          # testing the referee on
 MS = [1, 2, 4, 5, 8, 9, 12, 16]
 COPIES, CALLS, WARM, ROUNDS = 8, 40, 3, 7
 GS, BITS = 64, 4
-TOL_REL = 4e-3
 
 
 def ref_qmm(x, w, s, b):
@@ -76,6 +81,9 @@ def main():
         ws = [mx.quantize(mx.random.normal((out_f, in_f)).astype(mx.bfloat16), group_size=GS, bits=BITS)
               for _ in range(COPIES)]
         mx.eval(ws)
+        w0, s0, b0 = ws[0]
+        w32 = mx.dequantize(w0, s0.astype(mx.float32), b0.astype(mx.float32), group_size=GS, bits=BITS)
+        mx.eval(w32)
         print(f"\n{sname}: out {out_f} x in {in_f}")
         mlx_m1 = None
         for m in MS:
@@ -88,16 +96,30 @@ def main():
                 all_ok = False
                 continue
             exact = bool(mx.array_equal(c, r).item()) and c.dtype == r.dtype
-            err = mx.max(mx.abs(c.astype(mx.float32) - r.astype(mx.float32))).item()
-            scale = mx.max(mx.abs(r.astype(mx.float32))).item()
-            ok = err <= TOL_REL * scale
+            rf, cf = r.astype(mx.float32), c.astype(mx.float32)
+            floor = max(1.0, mx.max(mx.abs(rf)).item() / 64)   # near-zero outputs: judged at 1/64 of the largest
+            ulp = mx.power(2.0, mx.floor(mx.log2(mx.maximum(mx.abs(rf), floor))) - 7)
+            worst = mx.max(mx.abs(cf - rf) / ulp).item()
+            differ = 100 * mx.mean((cf != rf).astype(mx.float32)).item()
+            ref32 = x.astype(mx.float32) @ w32.T
+            xp = mx.concatenate([x, mx.zeros((128 - m, in_f), dtype=x.dtype)], axis=0)
+            prompt_k = ref_qmm(xp, *ws[0])[:m]
+            mx.eval(ref32, prompt_k)
+
+            def err(a):
+                return mx.max(mx.abs(a.astype(mx.float32) - ref32)).item()
+
+            e_c, e_mlx, e_pk = err(c), err(r), err(prompt_k)
+            tol = 1.25 * max(e_mlx, e_pk)
+            ok = e_c <= tol
             all_ok &= ok
             t_ref, t_c = timed(ref_qmm, x, ws), timed(cand_fn, x, ws)
             mlx_m1 = mlx_m1 or t_ref
             vs_m1 = t_c / mlx_m1
             if m == 9 and sname.startswith("mlp"):
                 worst9 = max(worst9 or 0, vs_m1)
-            print(f"  M={m:2d}: {'exact' if exact else 'ok   ' if ok else 'WRONG'}  err {err:.3g} (max {scale:.3g})"
+            print(f"  M={m:2d}: {'exact' if exact else 'ok   ' if ok else 'WRONG'}  vs fp32: cand {e_c:5.2f}  MLX {e_mlx:5.2f}"
+                  f"  MLX-prompt {e_pk:5.2f} | vs MLX: {worst:4.1f} ulp, {differ:5.2f}% differ"
                   f"   MLX {t_ref:8.1f} us   cand {t_c:8.1f} us   cand/MLX {t_c / t_ref:5.2f}"
                   f"   cand vs MLX@M=1 {vs_m1:5.2f}x")
     print("\nVERDICT:", "all outputs correct" if all_ok else "SOME OUTPUTS WRONG",
