@@ -1,0 +1,100 @@
+session 20261030-115735: A=v0_original  B=v0_original@lookup  plan=h8  selftune=guided_medium_p2_20261028-072922#3  pairs=6 (+1 warm-up pair)
+--- pair 0 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.567 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 7091 tok, gen 800 @ 25.792 tok/s (steady state), peak 16.63 GB
+--- pair 0 slot B: v0_original@lookup
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original@lookup decode: prompt 73 tok, gen 800 @ 29.353 tok/s (steady state), peak 15.80 GB tok_per_pass=1.182 accept=0.364 decoder_sha=13b2dc7870ac
+v0_original@lookup selftune: prompt 7091 tok, gen 800 @ 28.256 tok/s (steady state), peak 16.63 GB tok_per_pass=1.278 accept=0.343 decoder_sha=13b2dc7870ac
+--- pair 1 slot B: v0_original@lookup
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original@lookup decode: prompt 73 tok, gen 800 @ 29.346 tok/s (steady state), peak 15.80 GB tok_per_pass=1.182 accept=0.364 decoder_sha=13b2dc7870ac
+v0_original@lookup selftune: prompt 7091 tok, gen 800 @ 28.245 tok/s (steady state), peak 16.63 GB tok_per_pass=1.278 accept=0.343 decoder_sha=13b2dc7870ac
+--- pair 1 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.558 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 7091 tok, gen 800 @ 25.804 tok/s (steady state), peak 16.63 GB
+--- pair 2 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.575 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 7091 tok, gen 800 @ 25.803 tok/s (steady state), peak 16.63 GB
+--- pair 2 slot B: v0_original@lookup
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original@lookup decode: prompt 73 tok, gen 800 @ 29.348 tok/s (steady state), peak 15.80 GB tok_per_pass=1.182 accept=0.364 decoder_sha=13b2dc7870ac
+v0_original@lookup selftune: prompt 7091 tok, gen 800 @ 28.249 tok/s (steady state), peak 16.63 GB tok_per_pass=1.278 accept=0.343 decoder_sha=13b2dc7870ac
+--- pair 3 slot B: v0_original@lookup
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original@lookup decode: prompt 73 tok, gen 800 @ 29.362 tok/s (steady state), peak 15.80 GB tok_per_pass=1.182 accept=0.364 decoder_sha=13b2dc7870ac
+v0_original@lookup selftune: prompt 7091 tok, gen 800 @ 28.265 tok/s (steady state), peak 16.63 GB tok_per_pass=1.278 accept=0.343 decoder_sha=13b2dc7870ac
+--- pair 3 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.581 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 7091 tok, gen 800 @ 25.811 tok/s (steady state), peak 16.63 GB
+--- pair 4 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.572 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 7091 tok, gen 800 @ 25.801 tok/s (steady state), peak 16.63 GB
+--- pair 4 slot B: v0_original@lookup
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original@lookup decode: prompt 73 tok, gen 800 @ 29.357 tok/s (steady state), peak 15.80 GB tok_per_pass=1.182 accept=0.364 decoder_sha=13b2dc7870ac
+v0_original@lookup selftune: prompt 7091 tok, gen 800 @ 28.257 tok/s (steady state), peak 16.63 GB tok_per_pass=1.278 accept=0.343 decoder_sha=13b2dc7870ac
+--- pair 5 slot B: v0_original@lookup
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original@lookup decode: prompt 73 tok, gen 800 @ 29.369 tok/s (steady state), peak 15.80 GB tok_per_pass=1.182 accept=0.364 decoder_sha=13b2dc7870ac
+v0_original@lookup selftune: prompt 7091 tok, gen 800 @ 28.258 tok/s (steady state), peak 16.63 GB tok_per_pass=1.278 accept=0.343 decoder_sha=13b2dc7870ac
+--- pair 5 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.564 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 7091 tok, gen 800 @ 25.802 tok/s (steady state), peak 16.63 GB
+--- pair 6 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.567 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 7091 tok, gen 800 @ 25.794 tok/s (steady state), peak 16.63 GB
+--- pair 6 slot B: v0_original@lookup
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original@lookup decode: prompt 73 tok, gen 800 @ 29.362 tok/s (steady state), peak 15.80 GB tok_per_pass=1.182 accept=0.364 decoder_sha=13b2dc7870ac
+v0_original@lookup selftune: prompt 7091 tok, gen 800 @ 28.259 tok/s (steady state), peak 16.63 GB tok_per_pass=1.278 accept=0.343 decoder_sha=13b2dc7870ac
+done. Analyse with:  python bench/compare.py --session 20261030-115735
+session 20261030-115735   A = v0_original   B = v0_original@lookup
+
+decode      (gen_tps, 6 pairs)
+   A median    26.569   B median    29.359
+   B vs A: median +10.489 %   range +10.435 .. +10.559 %
+   noise of A alone (CV): 0.031 %   B faster in 6/6 pairs (sign test p = 0.031)
+   -> B is FASTER than A by ~10.49 %
+
+selftune    (gen_tps, 6 pairs)
+   A median    25.803   B median    28.258
+   B vs A: median +9.513 %   range +9.460 .. +9.556 %
+   noise of A alone (CV): 0.021 %   B faster in 6/6 pairs (sign test p = 0.031)
+   -> B is FASTER than A by ~9.51 %
+
+peak memory (median GB): A/decode 15.80, A/selftune 16.63, B/decode 15.80, B/selftune 16.63
+mlx 0.32.4 / mlx_lm 0.32.2 | Muse-Glimmer-30B-4bit (4-bit) | git a2497f0 | 20 prompts | 800 tokens | order normal, H8, H8, normal
+prompt                                     size   normal       H8    gain tok/pass accept   eos  same
+code task (decode case)                      73   26.568   29.358 +10.50%    1.182  0.364  none   207
+guided_high_20261028-013335#1              3531   25.948   28.949 +11.57%    1.256  0.364  none   387
+guided_high_20261028-013335#2              3577   25.944   29.130 +12.28%    1.276  0.360  none   273
+guided_high_20261028-013335#3              3623   25.947   29.538 +13.84%    1.286  0.397  none   238
+guided_low_20261028-015726#1               3531   25.950   28.450  +9.63%    1.220  0.363  none   251
+guided_medium_p2_20261028-072922#1         3813   25.934   27.852  +7.39%    1.210  0.301  none    69
+guided_medium_p2_20261028-072922#2         5743   25.860   31.755 +22.80%    1.426  0.505  none   175
+guided_medium_p2_20261028-072922#3         7091   25.806   28.247  +9.46%    1.278  0.343  none   332
+guided_medium_p2_20261028-072922#4         8785   25.617   27.040  +5.56%    1.227  0.325  none   180
+guided_medium_p2_20261028-072922#5        10281   25.567   27.098  +5.99%    1.233  0.351  none   299
+guided_medium_p2_20261028-072922#6        11871   25.473   26.259  +3.09%    1.220  0.308  none    14
+guided_medium_p2_20261028-072922#7        12747   25.451   25.950  +1.96%    1.196  0.308  none    91
+guided_medium_p2_20261028-072922#8        13759   25.410   25.748  +1.33%    1.201  0.302  none   205
+unguided_high_20261028-011603#1            3322   25.955   27.651  +6.54%    1.182  0.307  none   165
+unguided_high_20261028-011603#2            3368   25.956   30.229 +16.46%    1.307  0.447  none   657
+unguided_high_20261028-011603#3            4113   25.922   28.347  +9.35%    1.235  0.339  none    64
+unguided_low_20261028-004423#1             3322   25.955   28.335  +9.17%    1.225  0.327  none   147
+unguided_medium_p2_20261028-072259#1       3591   25.945   27.744  +6.93%    1.189  0.316  none   105
+unguided_medium_p2_20261028-072259#2       4514   25.911   28.508 +10.02%    1.262  0.328  none    29
+unguided_medium_p2_20261028-072259#3       5765   25.850   30.113 +16.49%    1.345  0.432  none   224
+
+self-tuning prompts (19): gain median +9.35%, range +1.33 .. +22.80%
+  of which never reach end-of-turn within 800 tokens (19): median +9.35%
+saved runs/h8/sweep_20261030-130358.json
+BATCH DONE
