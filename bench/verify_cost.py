@@ -4,6 +4,7 @@
   python bench/verify_cost.py choose          # every 4-bit matmul routed through bench/kernels/choose.py
   python bench/verify_cost.py --lengths 1,2,3,4,5,9,17     # other pass lengths (default 1,5,9,17)
   python bench/verify_cost.py --lengths 1,2,3 --context "<recorded prompt id>"   # long context
+  python bench/verify_cost.py --lengths 1,2,3 --context "<id>" --variant v2_h9_split_attn
 
 --context (30 Oct): use a recorded self-tuning prompt (bench/prompts_index.py) as the context
 instead of the 1K test prompt. Past 2048 tokens mlx_lm's trim is invalid for the sliding-window
@@ -65,6 +66,7 @@ def main():
     ap.add_argument("kernel", nargs="?", default=None)
     ap.add_argument("--lengths", default="1,5,9,17")
     ap.add_argument("--context", default=None, help="recorded prompt id (bench/prompts_index.py)")
+    ap.add_argument("--variant", default="v0_original", help="model-code variant (bench/variants/)")
     args = ap.parse_args()
     kname = args.kernel
     lengths = [int(v) for v in args.lengths.split(",")]
@@ -72,7 +74,10 @@ def main():
         raise SystemExit("ABORT: the first length must be 1 (it is the reference)")
     if kname:
         patch(kname)
+    vmod, vsha = C.load_variant(args.variant)
+    vmod.apply()
     model, tok = load(str(C.MODEL_DIR))
+    vmod.post_load(model)
     if args.context:
         from prompts_index import get_prompt
         _, ids = get_prompt(tok._tokenizer, C, args.context)
@@ -94,7 +99,7 @@ def main():
         elif cache[0].offset <= 2048:
             if trim_prompt_cache(cache, n) != n:
                 raise SystemExit("ABORT: cache could not be rolled back")
-    print(f"kernel: {kname or 'stock MLX'} | context: {len(ids)} tokens (cache offset {cache[0].offset})")
+    print(f"variant {args.variant} ({vsha}) | kernel: {kname or 'stock MLX'} | context: {len(ids)} tokens (cache offset {cache[0].offset})")
     if kname:
         before = ROUTED[0]
         mx.eval(model(mx.array(ids[:9])[None], cache=cache))

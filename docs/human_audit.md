@@ -39,3 +39,19 @@ A change counts only if (1) the correctness check passes — bit-exact tokens fo
 marked bit-exact; otherwise logits within tolerance over the first 50 steps and top-1
 agreement — and (2) it is faster in interleaved A/B runs against the unmodified code,
 beyond the measured run-to-run noise.
+
+## H9 — split short-query attention so MLX's fused kernel is used (30 Oct, before Glimmer was asked)
+
+Measured (bench/verify_cost.py --context, stock MLX): a 3-token forward pass costs 1.25x a 1-token pass
+at 3.5K context and 1.44x at 13.8K, while a 2-token pass stays at 1.07-1.09x. This is why H8's gain
+falls from ~+11.6 % to ~+1.3 % as the context grows (bench/h8_sweep.py). MLX 0.32.4's fused "vector"
+attention kernel requires query_length x GQA_factor <= 32 (scaled_dot_product_attention.cpp,
+has_fused_kernel); Glimmer's GQA factor is 16 (32 query heads, 2 key/value heads), so 3-token passes
+fall back to unfused attention. Idea: split the queries of 3-8 token passes into chunks of <= 2 rows,
+each attending to the keys its rows may see. Human reference implementation:
+bench/variants/v2_h9_split_attn.py.
+
+## H10 — adaptive draft length (30 Oct)
+
+If H9 does not remove the cost, draft 1 token instead of 2 once the context is long, so H8's check
+passes stay at 2 tokens (fused kernel, 1.09x at 13.8K).

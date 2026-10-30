@@ -156,6 +156,8 @@ def main():
     ap.add_argument("--fp32", action="store_true")
     ap.add_argument("--mlx-baseline", action="store_true")
     ap.add_argument("--cases", default="chat,code,p1024,p4096,selftune")
+    ap.add_argument("--variant", default="v0_original", help="model-code variant (bench/variants/)")
+    ap.add_argument("--selftune", default=None, help="recorded prompt id for the selftune case")
     a = ap.parse_args()
     want = a.cases.split(",")
     if a.fp32 and os.environ.get("MLX_ENABLE_TF32") != "0":
@@ -163,7 +165,10 @@ def main():
     import common as C
     from mlx_lm import load
     C.guard()
+    vmod, vsha = C.load_variant(a.variant)
+    vmod.apply()
     model, tok = load(str(C.MODEL_DIR))
+    vmod.post_load(model)
     if a.fp32:
         model.set_dtype(mx.float32)          # floating params only; packed 4-bit weights stay uint32
         mx.eval(model.parameters())
@@ -172,7 +177,7 @@ def main():
     mode = "fp32" if a.fp32 else "mlx-baseline" if a.mlx_baseline else "bf16"
     print(f"{C.versions()} | model {C.MODEL_DIR.name} (4-bit) | weights {C.model_fingerprint()} bytes | "
           f"MLX_ENABLE_TF32={os.environ.get('MLX_ENABLE_TF32', 'unset (default 1)')} | mode {mode} | "
-          f"K={K} n_min={N_MIN} | tie tolerance {TIE_TOL} nats | git {C.git_head()}")
+          f"K={K} n_min={N_MIN} | tie tolerance {TIE_TOL} nats | variant {a.variant} ({vsha}) | git {C.git_head()}")
     results = []
     for name, text in C.user_messages().items():
         if name not in want:
@@ -184,11 +189,16 @@ def main():
             results.append(check_case(model, name, ids, C.CHECK_TOKENS,
                                       None if a.fp32 else golden[name]["tokens"]))
     if "selftune" in want and not a.mlx_baseline:
-        folder, ids = long_prompt(hf, C)
-        results.append(check_case(model, f"selftune {folder[:19]}", ids, LONG_TOKENS))
+        if a.selftune:
+            from prompts_index import get_prompt
+            folder, ids = get_prompt(hf, C, a.selftune)
+        else:
+            folder, ids = long_prompt(hf, C)
+        results.append(check_case(model, f"selftune {folder[-24:]}", ids, LONG_TOKENS))
     total = sum(r["wrong"] for r in results)
-    out = C.ROOT / "runs" / "h8" / f"h8_check_{mode}_{time.strftime('%Y%m%d-%H%M%S')}.json"
-    C.save_json(out, {"time": C.now(), "versions": C.versions(), "mode": mode, "tie_tol": TIE_TOL, "k": K,
+    out = C.ROOT / "runs" / "h8" / f"h8_check_{mode}_{a.variant}_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    C.save_json(out, {"time": C.now(), "versions": C.versions(), "mode": mode, "variant": a.variant,
+                      "variant_sha": vsha, "tie_tol": TIE_TOL, "k": K,
                       "n_min": N_MIN, "results": results})
     print(f"saved {out.relative_to(C.ROOT)}")
     print("VERDICT:", "PASS (0 wrong tokens)" if total == 0 else f"FAIL ({total} wrong tokens)")
