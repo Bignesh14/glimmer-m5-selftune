@@ -10,3 +10,4 @@ HACKATHON_LOG.md
 .DS_Store
 .venv/
 runs/bench/golden/
+demo/out/

@@ -2,6 +2,15 @@
 
 Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Indie track, solo. Problem statement: **Push the Frontier**.
 
+**Result.** On a Mac Studio M5 Max, Meta's Muse Glimmer 30B (4-bit, MLX) now writes **+17 % faster** on a coding task
+and **+5 % to +21 % faster (median +12.8 %)** on its own 19 recorded self-tuning prompts, with **no extra memory**.
+In exact (fp32) arithmetic the text is identical to normal decoding; in bf16 a near-tied token can occasionally flip
+(details below). Every one of 156 paired timing runs was faster. Two pieces: **H8**, prompt-lookup decoding made exact
+for Glimmer's sliding-window cache, and **H9**, a fix that keeps MLX's fast attention kernel in use for H8's 3-token
+check passes, found by this project's referee and traced to MLX's source. Glimmer's own best change so far: +0.17 %,
+bit-exact. **Demo:** `python demo/demo.py` runs the same prompt with normal decoding and with H8+H9, live, and writes a
+side-by-side replay page with the real timings.
+
 **What this is.** Muse Glimmer 30B (Meta's open-weight model, 4-bit, MLX) runs on a Mac Studio and is asked to make
 *its own* text generation faster without changing what it outputs. Every change it proposes passes through a
 **referee** built for this project: a safety gate, a bit-exact correctness check against a golden reference, and
@@ -36,9 +45,12 @@ replicated in a second race.
 | Fused MLP for decode only (refine 2) | Glimmer | bit-exact | +0.17–0.20 % | ±0 | ±0 | +7.6 GB |
 | **Fused MLP, one weight copy, prompts via slices (refine 3)** | **Glimmer** | **bit-exact** | **+0.17 %** | **+0.13 %** | **+0.10 %** | **+0.2–0.8 GB** |
 | **H8: prompt-lookup decoding (K=2), exact rollback past the 2048-token window** | human idea and analysis; decoder written with Claude | exact in fp32 (see below) | **+10.5 %**; **+11.6 %** on a self-tuning prompt | unchanged (same prefill code) | unchanged | 0 |
+| **H8 + H9: split 3-token attention so MLX's fused kernel is used** | human idea (H9); Glimmer given the same task on 30 Oct | normal decoding bit-exact; H8+H9 exact in fp32 | **+17.1 %** code task; **+16.1 %** (7K-token prompt); **+7.7 %** (14K) | unchanged | unchanged | 0 |
 
 Each Glimmer row was raced 2–3 times (12–18 paired runs per case, all in the same direction). H8 was raced 3 times
-(18 paired runs per case, 18/18 faster; medians +10.47 to +10.53 % and +11.57 to +11.59 %).
+(18 paired runs per case, 18/18 faster; medians +10.47 to +10.53 % and +11.57 to +11.59 %), and on two larger
+prompts 3 times each (+10.1 % at 4.5K tokens, +9.5 % at 7.1K). H8+H9 vs normal decoding was raced twice per prompt
+(6 pairs each; all faster; repeat races agree within 0.03 points).
 
 **What we learned about the model as an engineer:** unguided at low reasoning it independently rediscovered our first
 human idea (H1); at high reasoning it over-thought and hit the 12k-token cap; its crashes came from treating MLX like
@@ -63,12 +75,23 @@ the end right after a multi-token pass (`bench/lookup_decode.py`).
 *Correctness.* With float32 activations (and TF32 off), every token H8 produced on the real model equals what normal
 greedy decoding picks: 0 differences in 1,024 tokens, 512 of them past the window (`bench/h8_check.py`). A tiny-model
 test also proves a broken rollback is caught (`bench/test_lookup_decode.py`). In normal bf16, any batched check can flip
-near-tied tokens: we measured 1 flip (2 bf16 steps) in 1,536 tokens; MLX's own prompt and decode paths disagree by up to
-1 step. A float32 difference on the tiny model was traced to MLX's default TF32 for multi-row matmuls
+near-tied tokens: in 1,536 checked tokens, 5 differed from what normal decoding picks, 4 within one bf16 rounding step and
+1 at two steps. After such a flip the text continues differently (in the sweep, after 14 to 657 tokens; in the 600-token
+code-task demo the two texts were identical). MLX's own prompt and decode paths disagree with each other the same way
+(up to 1 step). A float32 difference on the tiny model was traced to MLX's default TF32 for multi-row matmuls
 (`MLX_ENABLE_TF32=1`, `bench/h8_logit_diff.py`).
 
-*Scope.* "Self-tuning prompt" is one recorded Glimmer prompt (3,531 tokens); the gain depends on how much the output
-repeats itself (simulation over all recorded runs: ≈1.3×).
+*Scope.* Sweep over all 19 recorded self-tuning prompts whose recorded answer is at least 800 tokens
+(`bench/h8_sweep.py`): H8 alone median +9.4 % (+1.3 to +22.8 %); H8+H9 median +12.8 % (+5.4 to +21.0 %). The gain depends
+on how much the output repeats itself, and in bf16 also on which text is written after a near-tie.
+
+**Why the gain shrank on long contexts, and the fix (H9).** The sweep showed H8's gain falling from ~11 % to ~1 % as the
+context grew to 14K tokens, although its guesses were as good. Measured pass costs (`bench/verify_cost.py --context`): at
+13,759 tokens a 3-token pass cost 1.44× a 1-token pass, a 2-token pass only 1.09×. MLX 0.32.4's fused attention kernel
+for short queries requires query length × GQA factor ≤ 32; Glimmer's GQA factor is 16 (32 query heads, 2 key-value
+heads), so H8's 3-token passes fell back to unfused attention. H9 (`bench/variants/v2_h9_split_attn.py`) computes those
+passes' attention in chunks of at most 2 queries: 3-token pass 1.44× → 1.21× at 14K. Normal decoding stays bit-exact
+(golden check); H8+H9 gives 0 wrong tokens on the 14K prompt in bf16 and is exact in fp32.
 
 *What did not work:* a hand-written Metal kernel for 9-token matmuls. MLX's own small-batch kernel re-reads the weights
 every 5 tokens and is limited by arithmetic beyond that, so a simple kernel could not reach the target; our first kernel
@@ -79,7 +102,9 @@ referee also timed independent calls that the GPU overlaps, which overstated a p
 - `bench/` — the referee: `run_one.py` (golden / check / speed), `ab.py` (interleaved races), `compare.py` (verdicts),
   `safety.py` (static gate), `loop.py` + `propose.py` (Glimmer proposes, referee judges, results fed back),
   `variants/` (every candidate, human and Glimmer), probes for the kernel work, `lookup_decode.py` (H8 decoder),
-  `lookup_policy.py`, `verify_cost.py`, `h8_check.py`, `test_lookup_decode.py` (H8 analysis and correctness).
+  `lookup_policy.py`, `verify_cost.py`, `h8_check.py`, `test_lookup_decode.py`, `h8_sweep.py`, `prompts_index.py`
+  (H8/H9 analysis, correctness, sweep).
+- `demo/demo.py` — the side-by-side demo (normal vs H8+H9 on the real model).
 - `docs/human_audit.md` — our own optimization ideas, committed before Glimmer saw the code.
 - `runs/` — every race (`bench/bench.csv`), correctness report, Glimmer conversation and raw output.
 
@@ -94,6 +119,8 @@ python bench/ab.py --a v0_original --b g_guided_medium_10281717_r1 --pairs 6
 python bench/test_lookup_decode.py                     # H8 logic, tiny model, seconds
 python bench/h8_check.py                               # H8 on the real model vs normal decoding
 python bench/ab.py --a v0_original --b v0_original@lookup --plan h8 --pairs 6
+python bench/ab.py --a v0_original --b v2_h9_split_attn@lookup --plan h8 --pairs 6   # normal vs H8+H9
+python demo/demo.py                                    # live side-by-side demo
 ```
 
 ## Credits and licences
