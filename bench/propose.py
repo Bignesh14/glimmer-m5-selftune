@@ -31,7 +31,7 @@ def extract_code(answer: str):
     return blocks[-1] if blocks else None
 
 
-def generate(conv, strength, max_tokens):
+def generate(conv, strength, max_tokens, temp=0.0, seed=0):
     import mlx.core as mx
     from mlx_lm import load
     from mlx_lm.generate import generate_step
@@ -44,14 +44,16 @@ def generate(conv, strength, max_tokens):
     ids = hf.encode(rendered, add_special_tokens=False)
     eos = set(tok.eos_token_ids)
     out, t0 = [], time.perf_counter()
-    for t, _ in generate_step(mx.array(ids), model, max_tokens=max_tokens,
-                              sampler=make_sampler(temp=0.0)):
+    mx.random.seed(seed)                     # only matters when temp > 0 (sampling)
+    sampler = make_sampler(temp=temp, top_p=0.95) if temp > 0 else make_sampler(temp=0.0)
+    for t, _ in generate_step(mx.array(ids), model, max_tokens=max_tokens, sampler=sampler):
         if t in eos:
             break
         out.append(t)
     secs = time.perf_counter() - t0
     text = hf.decode(out)
     stats = {"prompt_tokens": len(ids), "gen_tokens": len(out), "gen_seconds": round(secs, 1),
+             "temp": temp, "seed": seed,
              "hit_max_tokens": len(out) >= max_tokens,
              "peak_mem_gb": round(mx.get_peak_memory() / 1e9, 2)}
     if MARKER in text:
@@ -70,6 +72,8 @@ def main():
     p.add_argument("--variant-name", required=True)
     p.add_argument("--max-tokens", type=int, default=12000)
     p.add_argument("--fake-reply", help="testing only: use this file as Glimmer's reply")
+    p.add_argument("--temp", type=float, default=0.0, help="0 = greedy (default); > 0 = sampling (top_p 0.95)")
+    p.add_argument("--seed", type=int, default=0)
     a = p.parse_args()
 
     conv_path = Path(a.conv)
@@ -79,7 +83,7 @@ def main():
         stats = {"fake": True}
     else:
         C.guard()
-        text, answer, stats = generate(conv, a.strength, a.max_tokens)
+        text, answer, stats = generate(conv, a.strength, a.max_tokens, a.temp, a.seed)
 
     folder = conv_path.parent
     (folder / f"{a.variant_name}.raw.txt").write_text(text)

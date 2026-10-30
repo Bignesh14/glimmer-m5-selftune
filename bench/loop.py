@@ -3,6 +3,10 @@
   python bench/loop.py --arm unguided --strength low  --attempts 3
   python bench/loop.py --arm guided   --strength high --attempts 3 --race
   python bench/loop.py --task h9 --arm guided --strength medium --attempts 4 --race   # 30 Oct task
+  python bench/loop.py --task h9 --arm guided --strength medium --attempts 1 --temp 0.7 --seed 3   # one sample
+
+--temp/--seed (30 Oct, "best-of-N"): Glimmer samples (top_p 0.95) instead of answering greedily, so
+independent runs with different seeds give different solutions; the referee judges each the same way.
 
 --task h9 (30 Oct): Glimmer is asked to make H8's 3-token check passes cheaper. It gets the measured pass
 costs and MLX's attention-kernel limit, NOT our solution (docs/human_audit.md H9, recorded before this
@@ -212,6 +216,8 @@ def main():
     p.add_argument("--resume", help="continue an earlier run's conversation (closed loop: refine)")
     p.add_argument("--feedback-file", help="with --resume: measurements to send Glimmer first")
     p.add_argument("--task", default="speed", choices=["speed", "h9"])
+    p.add_argument("--temp", type=float, default=0.0)
+    p.add_argument("--seed", type=int, default=0)
     a = p.parse_args()
 
     C.guard()
@@ -231,23 +237,24 @@ def main():
         tag = "r"
     else:
         run_id = (f"{a.arm}_{a.strength}_{PROMPT_VERSION}_{stamp}" if a.task == "speed"
-                  else f"h9_{a.arm}_{a.strength}_{stamp}")
+                  else f"h9_{a.arm}_{a.strength}{f'_t{a.temp}_s{a.seed}' if a.temp > 0 else ''}_{stamp}")
         folder = PROPOSE_DIR / run_id
         folder.mkdir(parents=True, exist_ok=True)
         conv_path = folder / "conv.json"
         msg = first_message(a.arm) if a.task == "speed" else first_message_h9()
         conv_path.write_text(json.dumps([{"role": "user", "content": msg}], indent=1))
         tag = "a"
-    print(f"run {run_id}: arm={a.arm} strength={a.strength} attempts={a.attempts}")
+    print(f"run {run_id}: arm={a.arm} strength={a.strength} attempts={a.attempts} temp={a.temp} seed={a.seed}")
 
     winner = None
     for k in range(1, a.attempts + 1):
         vname = (f"g_{a.arm}_{a.strength}_{time.strftime('%m%d%H%M')}_{tag}{k}" if a.task == "speed"
-                 else f"g_h9_{a.strength}_{time.strftime('%m%d%H%M')}_{tag}{k}")
+                 else f"g_h9_{a.strength}{f'_s{a.seed}' if a.temp > 0 else ''}_{time.strftime('%m%d%H%M')}_{tag}{k}")
         row = {"time": C.now(), "run_id": run_id, "arm": a.arm, "strength": a.strength,
                "attempt": k, "variant": vname}
         cmd = [sys.executable, str(HERE / "propose.py"), "--conv", str(conv_path),
-               "--strength", a.strength, "--variant-name", vname, "--max-tokens", str(a.max_tokens)]
+               "--strength", a.strength, "--variant-name", vname, "--max-tokens", str(a.max_tokens),
+               "--temp", str(a.temp), "--seed", str(a.seed + 1000 * k)]
         if a.fake_dir:
             cmd += ["--fake-reply", str(Path(a.fake_dir) / f"a{k}.txt")]
         print(f"\n=== attempt {k}: asking Glimmer ({vname})", flush=True)
