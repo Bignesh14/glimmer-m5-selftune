@@ -1,0 +1,5 @@
+variant g_h9_medium_s6_10310025_a1 (e5b3d7e3aec0) | kernel: stock MLX | context: 13759 tokens (cache offset 13759)
+L= 1 (K= 0): median   40.23 ms per pass   = 1.00x a 1-token pass   (spread 40.08-40.38 ms)
+L= 2 (K= 1): median   43.81 ms per pass   = 1.09x a 1-token pass   (spread 43.73-43.88 ms)
+L= 3 (K= 2): median   49.65 ms per pass   = 1.23x a 1-token pass   (spread 49.57-49.73 ms)
+final cache offset 13794 | peak memory 16.70 GB

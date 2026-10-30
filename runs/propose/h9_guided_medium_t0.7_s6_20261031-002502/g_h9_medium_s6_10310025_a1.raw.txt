@@ -1,0 +1,310 @@
+ to=self<|message|>You are Muse Glimmer. Below is exact Python source code...
+
+We need to make 3-token forward pass cheaper at long context. The problem: scaled_dot_product_attention uses mx.fast.scaled_dot_product_attention which has fused vector kernel for short queries (query length <=8) but only if query_length x (number of query heads / number of key-value heads) <=32. Otherwise falls back to unfused implementation whose cost grows with number of keys.
+
+We have 32 query heads, 2 kv heads. Ratio = 32/2 =16. So condition query_length *16 <=32 => query_length <=2. So for 3-token pass, query_length=3, 3*16=48>32, so fails fused kernel. For 2-token pass, 2*16=32 <=32, so fused works. That's why 3-token pass expensive.
+
+We need to make 3-token forward pass cheaper at long context, by changing model code. Rules: one-token decoding and prompt processing must stay bit-identical (EXACT=True). Only forward passes of 2 to 8 tokens may change. Outputs must be same attention computed differently (tiny rounding differences allowed).
+
+We need to make 3-token pass cheaper. How? Possibly split query into smaller chunks to satisfy condition. Or change Attention.__call__ to process queries in smaller batches to trigger fused kernel. Since for 3 tokens, we could process first 2 tokens with fused, and third token separately? But prompt-lookup decoding expects 3-token pass with last token +2 guesses. The forward pass is called with L=3? Actually last token +2 guesses =3 tokens. Could we split the 3-token query into two parts: 2 tokens then 1 token? That would be two forward passes, but we need one forward pass? The task says forward passes of 2 to 8 tokens may change. Could we modify Attention.__call__ to when L>2 and L<=8, split into chunks of size <=2 to use fused kernel? Since attention is linear in query, splitting should give same result (up to rounding). That would make 3-token pass cheaper because each chunk satisfies condition.
+
+But need to ensure bit-identical for 1-token. For 2-8 tokens, outputs same attention computed differently (tiny rounding allowed). Splitting queries into multiple calls to scaled_dot_product_attention would change order of operations, maybe rounding differences allowed.
+
+Also need to keep memory under 25GB.
+
+Alternative: change number of query heads? No.
+
+We can patch Attention.__call__ to when L is between 2 and 8 inclusive? Actually only 2-8 tokens may change. Could detect when L is 3, and split into 2+1. Or split into chunks where each chunk's query_length * ratio <=32. Since ratio=16, max query_length =2. So we need chunks of size <=2.
+
+If we split 3 tokens into 2+1, we need to process first 2 tokens together, then third separately. But attention for third token depends on previous tokens in same pass? In prompt-lookup decoding, the 3 tokens are processed together as a batch. Splitting may change causal masking? Mask is "causal" string. The scaled_dot_product_attention with mask "causal" aligns causal mask to end of keys. If we split, we need to ensure each chunk sees correct keys.
+
+Simpler: just process query in chunks of size 2, using same keys/values and same mask. The result should be same because attention is per query independent.
+
+Implementation: In Attention.__call__, after obtaining q,k,v and before scaled_dot_product_attention, if L >2 and L <=8? Actually we can always split for L>2? But for 1-token must stay exact. For 2 tokens it's fine. For 3-8 tokens, we can split.
+
+But need to ensure that for sliding window layers where mask is array, splitting may need to adjust mask slices.
+
+Simpler: modify Attention.__call__ to when B,L shape and L in 3..8, we loop over chunks.
+
+But we need to preserve exactness for 1-token decoding and prompt processing. Prompt processing may involve large L ( >8). That must stay bit-identical. So we only change when L is small (2-8). That's fine.
+
+Also need to keep EXACT=True? Rule 1 says one-token decoding and prompt processing must stay BIT-IDENTICAL to original (set EXACT = True). Only forward passes of 2 to 8 tokens may change. So we can set EXACT=True? The template has EXACT=True. Might need to keep EXACT=True? It says set EXACT=True. So we keep EXACT=True.
+
+Now implement variant file.
+
+We need to patch Attention.__call__. Since apply() called before weights load, we can monkey-patch class.
+
+Approach: in apply(), import mlx_lm.models.muse_glimmer as mg. Save original Attention.__call__, replace with custom version that splits query into chunks of max size 2 when L between 3 and 8 inclusive? Also maybe when condition fails: query_length * (n_heads//n_kv_heads) >32. That's general.
+
+Compute ratio = n_heads // n_kv_heads =16. Max chunk size = floor(32 / ratio) =2.
+
+So we can split into chunks of size <=2.
+
+Implementation details:
+
+Original __call__:
+
+B,L,_ = x.shape
+q = ...
+k = ...
+v = ...
+q = rms_norm...
+k = rms_norm...
+q = transpose...
+k = transpose...
+v = transpose...
+if use_rope...
+if cache is not None: k,v = cache.update_and_fetch(k,v)
+out = scaled_dot_product_attention(q,k,v,...)
+out = transpose...
+
+We can insert after q/k/v prepared, before scaled_dot_product_attention, if L >2 and L <=8? Or if L * ratio >32.
+
+If condition holds, we split q,k,v into chunks along L dimension.
+
+Simpler: iterate over chunks of q with size chunk_size=2. For each chunk, call scaled_dot_product_attention on that chunk with same k,v. Concatenate results.
+
+But note mask handling: scaled_dot_product_attention expects mask. If mask is "causal" string, passing smaller q will still work? The mask is applied based on query length vs keys length. Since we split, each chunk's query length is smaller, but the causal mask relative to its position in overall sequence matters. If we just take first 2 queries together, they will see keys up to their positions correctly? With causal mask, query i sees keys 0..K-L+i. If we split, we need to ensure offset.
+
+Because the query positions are absolute. If we process chunk starting at position start, the mask should be as if query is at that absolute position.
+
+If we just slice q[ :, :, start:start+chunk, : ], the scaled_dot_product_attention with mask="causal" will assume queries are at the end of keys? Actually MLX aligns causal mask to END of keys: query i of L sees keys 0 .. K-L+i. If we feed a chunk of size 2 that corresponds to queries at positions L-2 and L-1 (the last two), then the mask alignment is off.
+
+Better approach: keep full q but process in smaller query_length to trigger fused kernel, but need to preserve positional alignment.
+
+Alternative: we can duplicate k,v to have only last few keys? No.
+
+Simpler: we can just process the whole q but with a trick to make query_length <=2 for kernel condition. Could we reshape q to have query_length * something? Hmm.
+
+Alternative approach: change number of query heads effective? Could temporarily reduce heads? No.
+
+Better: we can process queries one by one for long context? That would be many passes.
+
+Maybe the condition is query_length * (n_heads / n_kv_heads) <=32. With n_heads=32, n_kv_heads=2, ratio=16. For query_length=3, 48>32. If we process queries in chunks of 2, each chunk size 2 works. But we need to ensure mask aligns.
+
+We can process in chunks but with appropriate offset for causal mask. Since mask is string "causal", we can't easily adjust. But we can manually create a mask array for each chunk that corresponds to the correct positions.
+
+Simpler: we can keep the same q but split along head dimension? No.
+
+Alternative: we can transpose and split query heads into groups? The condition involves number of query heads / number of key-value heads. If we process half the heads at a time, ratio effectively halves? The condition is query_length * (num_query_heads / num_kv_heads) <=32. If we split heads into two groups of 16 heads each, then effective num_query_heads =16, ratio=8, query_length=3 =>24 <=32, qualifies! That may be easier: process heads in two halves.
+
+Since attention is independent across heads, we can split heads into chunks where each chunk has at most 2 heads? Wait ratio = heads / kv_heads. If we process subset of heads, the effective number of query heads is smaller. The scaled_dot_product_attention function receives queries with shape (B, n_heads, L, head_dim). If we slice heads, we can call scaled_dot_product_attention multiple times on subsets of heads, concatenating results. That preserves positional alignment because query positions unchanged.
+
+That seems promising: split n_heads into chunks where chunk_heads * ratio? Actually ratio = chunk_heads / n_kv_heads. Condition: query_length * (chunk_heads / n_kv_heads) <=32.
+
+With n_kv_heads=2, chunk_heads max = floor(32 / (query_length *? Wait condition is query_length * (num_query_heads / num_kv_heads) <=32. So chunk_heads <= floor(32 * n_kv_heads / query_length). For query_length=3, max chunk_heads = floor(32*2/3)= floor(21.33)=21. So we can have chunk of 21 heads, still works. For query_length=8, max chunk_heads = floor(32*2/8)=8. So we can split heads.
+
+Thus splitting heads may be easier than splitting tokens because mask alignment stays same.
+
+We can just split heads into chunks of size <= max_heads.
+
+For L=3, max_heads=21. Since n_heads=32, we can split into 21+11. Both satisfy condition. For L=4, max_heads=16. So split into 16+16. For L=5, max_heads=12. So split 16? Actually 16>12, need smaller. So we can just split heads into chunks of 16 heads max? Let's compute general safe chunk size for L up to 8. Worst case L=8 => max_heads=8. So need chunk size <=8 to guarantee for all L up to 8. Could just split heads into chunks of 8 heads each. That would always satisfy condition: 8*16? Wait condition uses chunk_heads / n_kv_heads = chunk_heads/2. query_length * chunk_heads/2 <=32 => chunk_heads <=64 / query_length. For query_length=8, chunk_heads <=8. So 8 works. For query_length=3, chunk_heads <=21, so 8 also works.
+
+Thus splitting heads into chunks of 8 heads ensures fused kernel for all L up to 8. That seems good.
+
+Implementation: in Attention.__call__, after q is prepared (shape B, n_heads, L, head_dim), we can split along heads axis into chunks of size 8 (or maybe 16 for efficiency). Process each chunk via scaled_dot_product_attention, concatenate.
+
+But note k and v have n_kv_heads=2, not split. That's fine.
+
+Will this preserve exactness? Since attention is linear across heads, splitting and concatenating yields same result (exact up to order). Might be tiny rounding differences allowed.
+
+Also need to handle case where L <=2, we can keep original to avoid overhead.
+
+Memory: fine.
+
+Let's implement variant:
+
+NAME = "split_heads_fused"
+EXACT = True
+DESCRIPTION...
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    orig_call = mg.Attention.__call__
+    ...
+
+We need to replace __call__ method.
+
+We need to preserve signature.
+
+Implementation steps:
+
+def new_call(self, x, mask=None, cache=None):
+    B,L,_ = x.shape
+    q = self.q_proj(x).reshape(B,L,self.n_heads,self.head_dim)
+    ...
+    # after q,k,v prepared and transposed
+    ...
+
+But we need to replicate original code. Might be easier to monkey-patch the Attention class to override __call__ with our version that calls original logic but with splitting.
+
+Simpler: create wrapper that computes q,k,v as original, then if L between 3 and 8 inclusive (or condition fails), split heads.
+
+Let's implement new_call:
+
+def __call__(self, x, mask=None, cache=None):
+    B, L, _ = x.shape
+    q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+    k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+    v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+    q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+    k = mx.fast.rms_norm(k, None, self.eps)
+    q = q.transpose(0,2,1,3)
+    k = k.transpose(0,2,1,3)
+    v = v.transpose(0,2,1,3)
+    if self.use_rope:
+        offset = cache.offset if cache is not None else 0
+        q = self.rope(q, offset=offset)
+        k = self.rope(k, offset=offset)
+    if cache is not None:
+        k, v = cache.update_and_fetch(k, v)
+    # split heads
+    if L > 2 and L <= 8:
+        # split heads
+        n_heads = self.n_heads
+        chunk_size = 8  # ensures fused kernel
+        # process in chunks
+        outs = []
+        for start in range(0, n_heads, chunk_size):
+            end = min(start+chunk_size, n_heads)
+            q_chunk = q[:, start:end, :, :]
+            out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+            outs.append(out_chunk)
+        out = mx.concatenate(outs, axis=1)
+    else:
+        out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+    out = out.transpose(0,2,1,3).reshape(B, L, -1)
+    out = out * mx.sigmoid(self.gate_proj(x))
+    return self.o_proj(out)
+
+But note we need scaled_dot_product_attention imported. In original file, it's imported from .base. We can import it in apply.
+
+Potential issue: cache object is used for update_and_fetch earlier, but we already updated k,v. That's fine.
+
+One nuance: the mask for sliding window layers is an array, not string. Splitting heads still works.
+
+Also need to ensure for L=2, we keep original to avoid overhead. L=2 still qualifies for fused kernel (2*16=32). So fine.
+
+Edge case: L=1, we must be bit-identical. Our condition L>2 avoids change.
+
+Also prompt processing may have L large, we don't change.
+
+Potential rounding differences: concatenation may change order of operations slightly but allowed.
+
+Memory under 25GB fine.
+
+Let's craft variant file.
+
+We need to define NAME, EXACT, DESCRIPTION.
+
+Apply function patches.
+
+Implementation details for patching:
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    orig_call = mg.Attention.__call__
+
+    def new_call(self, x, mask=None, cache=None):
+        ...
+        return ...
+
+    mg.Attention.__call__ = new_call
+
+post_load does nothing.
+
+Potential issue: self.n_heads is attribute, self.scale etc.
+
+We need to ensure self.use_rope etc.
+
+Let's produce final code.
+
+Also need to ensure we import mlx.core as mx inside new_call or at top.
+
+Let's craft final answer.
+
+Potential improvement: compute chunk_size dynamically based on L to maximize efficiency: max_heads = max(1, 32 // (L * (self.n_heads // self.n_kv_heads?) No.
+
+Simpler fixed chunk 8.
+
+Could also use 16 for L=3,4? Might be faster? But 8 safe.
+
+Let's output.
+
+<|eom|><|start|>assistant to=user<|message|>The fused SDPA kernel is only used when `query_length * (n_heads / n_kv_heads) <= 32`.  
+With 32 query heads and 2 KV heads the ratio is 16, so a 3-token query gives `3*16=48>32` and falls back to the unfused path. Splitting the query heads into small chunks keeps the same mathematical result while satisfying the fused-kernel condition. The split is only applied for 3-8 token queries, so 1-token decoding and long-context prompt processing stay bit-identical.
+
+```python
+"""split_heads_fused — split query heads to stay in the fused SDPA kernel."""
+
+NAME = "split_heads_fused"
+EXACT = True
+DESCRIPTION = "Split query heads into <=8 head chunks for 3-8 token queries to keep the fused SDPA kernel and avoid the unfused long-context cost."
+
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    orig_call = mg.Attention.__call__
+
+    def new_call(self, x, mask=None, cache=None):
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # For 3-8 token queries the fused kernel condition fails:
+        # query_length * (n_heads / n_kv_heads) <= 32  ->  n_heads <= 64 / L
+        # Splitting heads keeps the same attention result but forces the fused path.
+        if 2 < L <= 8:
+            n_heads = self.n_heads
+            chunk_size = 8  # 8 * 16 = 128? Actually condition uses chunk heads:
+            # query_length * (chunk_heads/2) <=32  -> chunk_heads <=64/L
+            # chunk_size=8 satisfies L<=8
+            outs = []
+            for start in range(0, n_heads, chunk_size):
+                end = start + chunk_size
+                if end > n_heads:
+                    end = n_heads
+                q_chunk = q[:, start:end, :, :]
+                out_chunk = scaled_dot_product_attention(
+                    q_chunk, k, v, cache=cache, scale=self.scale, mask=mask
+                )
+                outs.append(out_chunk)
+            out = mx.concatenate(outs, axis=1)
+        else:
+            out = scaled_dot_product_attention(
+                q, k, v, cache=cache, scale=self.scale, mask=mask
+            )
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = new_call
+
+
+def post_load(model):
+    pass
+```

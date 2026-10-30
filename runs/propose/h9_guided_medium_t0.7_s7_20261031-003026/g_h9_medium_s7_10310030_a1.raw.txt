@@ -1,0 +1,419 @@
+ to=self<|message|>You are Muse Glimmer. Below is exact Python source code...
+We need make 3-token forward pass cheaper at long context, by changing model code.
+
+We have MLX fast scaled_dot_product_attention has fused vector kernel for short queries (query length <=8), but only if query_length x (number of query heads / number of key-value heads) <=32. Otherwise falls back to unfused whose cost grows with number of keys.
+
+We have 32 query heads and 2 kv heads. Ratio = 32/2 =16. So condition: query_length *16 <=32 => query_length <=2. So for query length 3, condition fails: 3*16=48 >32. So falls back to unfused.
+
+We need 3-token forward pass cheaper. Prompt-lookup decoding with 3-token pass: we guess 2 tokens after last 2 tokens, check guesses in ONE forward pass of 3 tokens (last token +2 guesses). So query length =3.
+
+We need to make 3-token pass cheaper. Options: change model to make query length effectively <=2 for the SDPA call? Could split into multiple calls? Since we can change forward passes of 2 to 8 tokens may change, outputs must be same attention computed differently (tiny rounding allowed). One-token decoding must stay bit-identical.
+
+We can modify Attention.__call__ to, when L is small (2-8) and context long? The cost is from scaled_dot_product_attention. If we can make query_length smaller for SDPA, e.g., split into 2+1? But need same output.
+
+Observation: fused vector kernel condition query_length * (n_heads / n_kv_heads) <=32. With ratio 16, max query_length 2. So for L=3, we could split into two calls: first 2 tokens, then 1 token? But we need same result as 3 tokens together? Attention is independent per query position, so splitting is fine. Since attention for each query token only depends on keys/values, not on other queries. So we can process queries in chunks where chunk size satisfies condition.
+
+We can modify Attention.__call__ to if L between 2 and 8 inclusive, and maybe context long? But condition for fused kernel only depends on query length and heads ratio, not context length. However the cost grows with number of keys for unfused. So splitting may reduce cost? If we split 3 into 2+1, each call has smaller query length, so fused kernel may be used. For 2 tokens: 2*16=32 <=32, so fused. For 1 token: 1*16=16 <=32, fused. So we can make two calls instead of one.
+
+But need to ensure outputs same. Since attention is per query independent, splitting is fine.
+
+But we also need to preserve mask behavior? Mask is either None, "causal", or array. With split, we need to ensure mask applied correctly per query position.
+
+If we split queries into chunks, we need to maintain correct offset for RoPE? RoPE applied before SDPA, so splitting after RoPE is fine. However RoPE offset depends on position. If we split, we need to apply RoPE to each chunk with correct offset per token. Since RoPE is applied per token, splitting after RoPE is okay if we compute RoPE for whole L then split. Or compute per chunk with correct offset.
+
+Simpler: in Attention.__call__, after computing q,k,v, if L >2 and L <=8? Actually we want to optimize for L=3 (and maybe 2-8). Could just if L>2 and L<=8: split into chunks of size <=2 (max to satisfy condition). Then call scaled_dot_product_attention multiple times and concatenate.
+
+But note condition also requires query_length <=8, which holds. So we can chunk to size 2.
+
+But we also need to ensure that for 1-token passes, exactness stays. So we must only change when L in 2..8.
+
+Also need to ensure memory under 25GB.
+
+Implementation plan: patch Attention.__call__ in muse_glimmer. Since we can modify via apply() before weights load, we can monkey-patch Attention class.
+
+Simpler: in apply(), import mlx_lm.models.muse_glimmer as mg, then replace Attention.__call__ with custom version.
+
+We need to keep same signature.
+
+Alternative: modify scaled_dot_product_attention wrapper? Could intercept calls and split? Might be easier to patch Attention.__call__.
+
+We need to ensure cache update works: k,v updated via cache.update_and_fetch before SDPA. That's independent of query chunking.
+
+So algorithm:
+
+Original __call__:
+q,k,v computed, transformed, rope, cache update, out = scaled_dot_product_attention(q,k,v,...), out transpose etc.
+
+We can keep same steps up to q,k,v ready.
+
+Then if L in [2,8] (and maybe context long? but condition independent). We can split q into chunks.
+
+We need to handle mask. Mask is passed to scaled_dot_product_attention. If mask is "causal", the fused kernel handles it? Splitting with same mask should still be correct because mask is per query position relative to keys. If we split, we need to ensure mask corresponds to each chunk's queries with same key set. Since mask is "causal", the attention for query i sees keys up to ... The key set is same for all queries (full cache). Splitting queries preserves correctness because each query's attention is independent.
+
+But if mask is an array shape (..., L, K), splitting requires slicing mask accordingly.
+
+Implementation details:
+
+In Attention.__call__:
+
+B, L, _ = x.shape
+
+... compute q,k,v ...
+
+q = q.transpose... etc.
+
+After cache update:
+
+if cache is not None:
+ k, v = cache.update_and_fetch(k, v)
+
+Now we have q (B, n_heads, L, head_dim). We want to split along L dimension.
+
+If L >2 and L <=8? Actually we want to make query_length <=2 to satisfy condition. Could also be L=3,4,...8. Splitting into chunks of size 2 (or 2 for first chunk, rest 1?). Let's just chunk size = 2 (max that satisfies). For L=3, we can do first 2, then 1. For L=4, two chunks of 2. etc.
+
+We need to call scaled_dot_product_attention multiple times, each with q_chunk, same k,v, cache, scale, mask.
+
+But mask handling: if mask is "causal" string, passing same mask to each call is okay? The SDPA implementation interprets mask based on query positions? In MLX, mask "causal" aligns to end of keys: query i sees keys 0..K-L+i. If we split, the relative positions of queries change? Actually if we take first 2 queries of original batch, their positions are i = L_start ... L_start+1? Wait original q has positions for the current chunk of tokens (L). The absolute positions in sequence depend on cache offset. The mask "causal" is applied assuming queries are contiguous at end of keys. If we split q into two parts, the second part's queries are later in sequence than first part's. If we call SDPA separately with same mask "causal", the implementation will assume the queries are at the end of keys, but the offset between queries is lost? Hmm.
+
+Let's think: In standard decoding, we have cache containing previous keys/values. The current input is L tokens (maybe 3). The queries correspond to these L tokens in order. The mask "causal" should allow each query to attend to all previous keys plus its own position within the current block.
+
+If we split, the first chunk contains first 2 tokens of the block, second chunk contains token 3. When we call SDPA with mask "causal" on first chunk, it will assume queries are at positions ... The implementation of mask "causal" in MLX probably assumes queries are the last L positions of the full sequence, and keys are the full cache + current keys. The relative offset between queries within the block matters.
+
+If we process chunks sequentially, we need to ensure that the second chunk sees keys from first chunk as well (since they are part of current block). But since we already updated cache with k,v for all L tokens before SDPA, the keys for the whole block are in k (not in cache?). Wait cache.update_and_fetch returns updated k,v that include the current tokens? Actually cache.update_and_fetch(k,v) returns the updated cache contents (including previous and current). So k contains all keys up to current block.
+
+If we split q, we still use same k (which contains all keys). So second chunk will see keys from first chunk (since k includes them). Good.
+
+But mask "causal" also needs to know the position of each query within the block to enforce causality within block. If we process chunks separately with same mask "causal", the second chunk's queries will be treated as if they are at the end of the block, which may allow them to attend to first chunk's queries (which is fine, they should). However the first chunk's queries should not attend to second chunk's queries (since they are future). If we process first chunk alone, with mask "causal" assuming its queries are at the end of keys, it might incorrectly allow them to attend to second chunk's keys (which are in k). That would be wrong.
+
+Thus splitting naively with same mask may break causality within the block.
+
+Alternative: we can process queries in reverse order? Or we need to adjust mask per chunk.
+
+Simpler: we can keep mask as is, but we need to ensure causality within block is preserved. Since we process chunks sequentially, we need to ensure that when processing first chunk, it does not see keys from later chunks in same block. However k includes all keys of the block. So we need to mask out future queries within block.
+
+We could process chunks in order from last to first, so earlier chunks don't see later chunks. If we process last chunk first, then earlier chunk, the earlier chunk will still see keys from later chunk if we keep k unchanged.
+
+Alternative approach: instead of splitting q, we can split q into smaller chunks and call SDPA with adjusted mask that excludes future keys within block.
+
+Simpler: we can just reduce query length to 2 by processing first 2 tokens with SDPA, and process remaining 1 token separately with its own q, but we need to ensure that for the first 2 tokens, they don't attend to token 3. If we process token 3 first (with full k), then process first 2 tokens with k that excludes token 3. That would require recomputing k without token 3, which is messy.
+
+Alternative: we can keep the same computation but change the query heads grouping to reduce effective query_length * ratio? Could we reshape q to reduce number of heads? No.
+
+Another idea: use the fact that condition for fused kernel is query_length * (n_heads / n_kv_heads) <=32. With ratio 16, max query_length 2. So we could transpose heads dimension to reduce effective query heads per call? Could we process heads in batches? Since SDPA operates on queries shape (B, n_heads, L, head_dim). If we split heads into groups, each call would have fewer heads, reducing effective ratio. Could we split heads into 2 groups of 16 heads each? Then n_heads effective =16, ratio =8, query_length 3 => 3*8=24 <=32, so fused kernel would be used! That might be better because we don't need to worry about mask causality within block (since heads are independent). Splitting heads keeps query length same, but reduces heads per call.
+
+Indeed condition uses number of query heads / number of key-value heads. If we split heads into batches, each call has fewer query heads. So we can keep query length 3, but split heads into groups where effective heads <=2? Wait ratio = heads_per_call / kv_heads. kv_heads stays same? In SDPA, keys and values have n_kv_heads. If we split queries into groups, keys remain same (all heads). The SDPA implementation probably broadcasts keys across query heads? Actually keys have shape (B, n_kv_heads, L, head_dim). Queries have (B, n_heads, L, head_dim). The attention is computed per query head, mapping to corresponding kv head via grouping. So splitting query heads into smaller groups still uses same keys.
+
+If we split query heads into chunks, each call will have fewer query heads, so condition may be satisfied. This avoids mask issues because query positions stay same.
+
+That seems promising.
+
+We have n_heads=32, n_kv_heads=2. Ratio per call = heads_per_call /2. Need query_length * ratio <=32 => heads_per_call <= 32 / query_length *2? Wait compute: query_length * (heads_per_call / kv_heads) <=32 => heads_per_call <= 32 * kv_heads / query_length.
+
+For query_length=3, kv_heads=2 => heads_per_call <= 32*2/3 ≈21.33 => max 21 heads. So we could split 32 heads into two groups: 16 and 16. Each group 16 <=21, so condition satisfied! So we don't need to split queries length, just split heads.
+
+For query_length=4, heads_per_call <= 32*2/4=16 => max 16 heads. So split into 2 groups of 16 works.
+
+For query_length=5, heads_per_call <=12.8 => max 12. So need smaller groups.
+
+For query_length=6, heads_per_call <=10.66
+
+For query_length=7, heads_per_call <=9.14
+
+For query_length=8, heads_per_call <=8
+
+So splitting heads may work for all L up to 8 with appropriate chunk size.
+
+Simpler: just split heads into 16-head chunks. That works for L=3,4. For L=5, 16 >12, so fails. Could split into 8-head chunks.
+
+We could dynamically choose chunk size to satisfy condition.
+
+Simpler approach: chunk heads into size 16 (since 32/2=16). Then for L=3, condition holds (3*8=24 <=32). Wait heads_per_call=16, ratio=16/2=8, query_length*8=24 <=32 good. For L=4, 4*8=32 <=32 good. For L=5, 5*8=40 >32 fails. So need smaller.
+
+We could for each call compute max heads per call to satisfy condition: heads_max = floor(32 * kv_heads / query_length). With kv_heads=2 => heads_max = floor(64 / L). For L=3 =>21, L=4=>16, L=5=>12, L=6=>10, L=7=>9, L=8=>8.
+
+We can split heads into chunks of size <= heads_max.
+
+Implementation: in Attention.__call__, after q,k,v prepared, if 2 <= L <=8, compute heads_max, if n_heads > heads_max, split heads into chunks.
+
+We need to preserve output order. We can loop over head groups, compute attention for each group, then concatenate.
+
+This avoids mask issues because query positions unchanged.
+
+Also for sliding window mask (array), splitting heads is fine.
+
+Let's adopt head splitting.
+
+Implementation steps:
+
+Patch Attention.__call__:
+
+Original code computes q, k, v, etc., then out = scaled_dot_product_attention(q, k, v, ...)
+
+We can replace with:
+
+if 2 <= L <= 8:
+   heads_max = max(1, int(32 * self.n_kv_heads // L))? Actually floor. Compute heads_max = max(1, (32 * self.n_kv_heads) // L). Wait formula: query_length * (heads_per_call / kv_heads) <=32 => heads_per_call <= 32 * kv_heads / query_length. So heads_max = floor(32 * kv_heads / L). For L=3 => floor(64/3)=21. Good.
+
+If self.n_heads <= heads_max: use original call.
+
+Else split heads into chunks of size heads_max (or maybe keep remainder). Loop, collect outputs.
+
+But we need to ensure that q shape is (B, n_heads, L, head_dim). Splitting heads dimension: we can take q[:, i:i+chunk, :, :] etc.
+
+Similarly, output will be (B, n_heads, L, head_dim). After processing each chunk, we concatenate along heads dimension.
+
+Potential issue: scaled_dot_product_attention expects queries shape (B, n_heads, L, head_dim). If we pass subset of heads, keys/values remain same (with n_kv_heads). That's fine.
+
+Implementation details:
+
+def custom_call(self, x, mask=None, cache=None):
+   ... compute q,k,v etc as before up to q shape...
+   if cache is not None:
+     k, v = cache.update_and_fetch(k, v)
+   # decide splitting
+   B, L, _ = x.shape
+   if 2 <= L <= 8:
+       heads_max = int(32 * self.n_kv_heads / L)
+       if heads_max < self.n_heads:
+           # split
+           outputs = []
+           for start in range(0, self.n_heads, heads_max):
+               end = min(start + heads_max, self.n_heads)
+               q_chunk = q[:, start:end, :, :]
+               # need to keep k,v same
+               out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+               outputs.append(out_chunk)
+           out = mx.concatenate(outputs, axis=1)
+       else:
+           out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+   else:
+       out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+   ... rest
+
+But note: q was transposed earlier: q = q.transpose(0,2,1,3)? Wait code: q = q.transpose(0,2,1,3) -> shape (B, L, n_heads, head_dim)? Actually original code: q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim). Then q = q.transpose(0,2,1,3) => (B, n_heads, L, head_dim). Good.
+
+So chunking along axis 1.
+
+Potential rounding differences? Splitting and concatenating should be mathematically identical (just different chunking). Since attention is independent per head, result identical.
+
+Edge case: heads_max may be > n_heads, then no split.
+
+Also need to ensure that for L=2, heads_max = 32*2/2=32, so n_heads=32 <=32, no split, fused kernel already used. Good.
+
+For L=3, heads_max=21, split into 21+11.
+
+Will this improve cost? The fused kernel condition for each chunk: query_length * (heads_per_chunk / kv_heads) <=32. With heads_per_chunk <=21, ratio <=10.5, *3=31.5 <=32, so fused.
+
+Memory okay.
+
+Also need to keep exactness for 1-token passes: we only split when 2<=L<=8, so 1-token unchanged.
+
+Also need to ensure that for sliding window layers with mask array, splitting heads works.
+
+Potential issue: mask may be array of shape (..., L, K). If we split heads, mask is broadcast.
+
+Now implement variant file.
+
+We need NAME, EXACT, DESCRIPTION. EXACT? The variant changes outputs? It should be same attention computed differently (tiny rounding differences allowed). Splitting heads shouldn't change result numerically (same operations). Might be tiny rounding due to different accumulation order? Should be same. Maybe allow tiny rounding. The rule says outputs must be same attention computed differently (tiny rounding differences are allowed there). So EXACT maybe False? The template has EXACT=True for original. For variant, we may want EXACT=False? The rule 1 says one-token decoding and prompt processing must stay BIT-IDENTICAL to original (set EXACT=True): only forward passes of 2 to 8 tokens may change. In those passes outputs must be same attention computed differently (tiny rounding differences are allowed there). The EXACT flag maybe indicates bit-identical? Probably EXACT True means bit-identical for all passes? Hmm.
+
+The template: EXACT = True # must match golden reference bit for bit (it IS the reference). So for variant, we might set EXACT=False? But rule says one-token decoding must stay bit-identical. Could set EXACT=True but only change for 2-8 tokens. Hmm.
+
+The EXACT flag maybe controls whether correctness check requires bit-exact for all passes. Since we allow tiny rounding differences for 2-8 token passes, maybe EXACT=False is okay? The spec says set EXACT=True for bit-identical. Might be they check EXACT flag? Might be they just use it for metadata.
+
+Safer to set EXACT=False? The rule says "only forward passes of 2 to 8 tokens may change. In those passes the outputs must be the same attention computed differently (tiny rounding differences are allowed there)." So we can set EXACT=False? Hmm.
+
+Maybe keep EXACT=True but note that for 1-token passes it's bit-identical. The flag may be just informational.
+
+Let's set EXACT=False? Could cause test to expect bit-identical? Might be they check EXACT flag to decide tolerance.
+
+I'll set EXACT=True? Hmm.
+
+The template says EXACT = True # must match the golden reference bit for bit (it IS the reference). For variant, we want same outputs for 1-token, and for 2-8 tokens outputs same up to rounding. Probably set EXACT=False to indicate not bit-identical? But rule says tiny rounding differences allowed. Might be they allow rounding.
+
+I'll set EXACT=True? Could be they check EXACT flag to enforce bit-identical for all. Hmm.
+
+Let's read rule 1: "One-token decoding and prompt processing must stay BIT-IDENTICAL to the original (set EXACT = True): only forward passes of 2 to 8 tokens may change." So they say set EXACT=True. So keep EXACT=True.
+
+Okay.
+
+Implement apply() to patch Attention.__call__.
+
+We need imports allowed: mlx.core, mlx.nn, mlx.utils, mlx_lm.models.muse_glimmer, mlx_lm.models.base, math, functools, typing, dataclasses.
+
+We can patch class.
+
+Simpler: define new Attention class with modified __call__, replace in module.
+
+In apply():
+from mlx_lm.models import muse_glimmer as mg
+original_attention = mg.Attention
+
+Define new class or monkey patch method.
+
+Easier: replace mg.Attention.__call__ with wrapper.
+
+We need access to scaled_dot_product_attention imported in module.
+
+Let's implement apply:
+
+def apply():
+  import mlx_lm.models.muse_glimmer as mg
+  import mlx_lm.models.base as base
+  original_call = mg.Attention.__call__
+
+  def new_call(self, x, mask=None, cache=None):
+    B, L, _ = x.shape
+    q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+    k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+    v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+    q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+    k = mx.fast.rms_norm(k, None, self.eps)
+    q = q.transpose(0,2,1,3)
+    k = k.transpose(0,2,1,3)
+    v = v.transpose(0,2,1,3)
+    if self.use_rope:
+      offset = cache.offset if cache is not None else 0
+      q = self.rope(q, offset=offset)
+      k = self.rope(k, offset=offset)
+    if cache is not None:
+      k, v = cache.update_and_fetch(k, v)
+    # decide split
+    if 2 <= L <= 8:
+      heads_max = int(32 * self.n_kv_heads / L)
+      # ensure at least 1
+      if heads_max < self.n_heads and heads_max > 0:
+        # split heads
+        outputs = []
+        # Use chunk size = heads_max
+        for start in range(0, self.n_heads, heads_max):
+          end = start + heads_max
+          if end > self.n_heads:
+            end = self.n_heads
+          q_chunk = q[:, start:end, :, :]
+          out_chunk = base.scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+          outputs.append(out_chunk)
+        out = mx.concatenate(outputs, axis=1)
+      else:
+        out = base.scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+    else:
+      out = base.scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+    out = out.transpose(0,2,1,3).reshape(B, L, -1)
+    out = out * mx.sigmoid(self.gate_proj(x))
+    return self.o_proj(out)
+
+  mg.Attention.__call__ = new_call
+
+But we lost self.scale etc. self.scale is defined in __init__. Good.
+
+Note we used base.scaled_dot_product_attention, which is same as original import.
+
+Potential issue: we re-computed q,k,v etc but original __call__ also does same. We replicated code. Could just wrap original call and split? Might be easier to just monkey patch with wrapper that does splitting before calling scaled_dot_product_attention.
+
+But we replicated code to avoid calling original which would already call scaled_dot_product_attention. Could just call original logic up to out.
+
+Simpler: just replace __call__ entirely as above.
+
+Potential nuance: self.scale defined as self.head_dim**-0.5 . Good.
+
+Also need to import mx.
+
+We must ensure we use mlx.core as mx.
+
+Implementation details for heads_max: int(32 * self.n_kv_heads / L). For L=3, 64/3=21.33 int=21. Good.
+
+For L=8, 64/8=8. So heads_max=8. Splits 32 into 4 chunks of 8.
+
+Now cost: each chunk still does SDPA with smaller heads, should use fused kernel.
+
+Potential improvement: for L=2, heads_max=32, no split.
+
+Edge: heads_max may be 0 for large L? L max 8, fine.
+
+Also need to ensure for L between 2 and 8 inclusive, we only split if heads_max < n_heads.
+
+Now about EXACT flag: set EXACT=True.
+
+Let's produce final file.
+
+Also post_load does nothing.
+
+Return.
+
+Potential issue: we used cache in scaled_dot_product_attention call, but cache is passed for quantized? The scaled_dot_product_attention expects cache argument. We pass same cache.
+
+When we split heads, we call scaled_dot_product_attention multiple times with same cache object. Does cache get mutated? No, cache.update_and_fetch already done. So fine.
+
+Potential performance overhead of Python loop for 32 heads split into 2 chunks: loop 2 times, okay.
+
+Memory under 25GB fine.
+
+Let's produce final answer.<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_head_split — split query heads to stay inside the fused SDPA kernel."""
+
+NAME = "v1_head_split"
+EXACT = True
+DESCRIPTION = "Split query heads for 2-8 token queries so query_length * heads_ratio <=32, keeping fused SDPA. 1-token paths unchanged."
+
+import mlx.core as mx
+from mlx_lm.models import muse_glimmer as mg
+from mlx_lm.models import base as base_mod
+
+def apply():
+    orig_call = mg.Attention.__call__
+
+    def new_call(self, x, mask=None, cache=None):
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # Only change 2-8 token passes; head splitting keeps the attention math identical
+        if 2 <= L <= 8:
+            heads_max = int(32 * self.n_kv_heads / L)
+            if 0 < heads_max < self.n_heads:
+                outs = []
+                for start in range(0, self.n_heads, heads_max):
+                    end = start + heads_max
+                    if end > self.n_heads:
+                        end = self.n_heads
+                    q_chunk = q[:, start:end, :, :]
+                    out_chunk = base_mod.scaled_dot_product_attention(
+                        q_chunk, k, v, cache=cache, scale=self.scale, mask=mask
+                    )
+                    outs.append(out_chunk)
+                out = mx.concatenate(outs, axis=1)
+            else:
+                out = base_mod.scaled_dot_product_attention(
+                    q, k, v, cache=cache, scale=self.scale, mask=mask
+                )
+        else:
+            out = base_mod.scaled_dot_product_attention(
+                q, k, v, cache=cache, scale=self.scale, mask=mask
+            )
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = new_call
+
+
+def post_load(model):
+    pass
+```

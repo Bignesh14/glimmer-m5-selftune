@@ -1,0 +1,131 @@
+run h9_guided_medium_t0.7_s1_20261030-235447: arm=guided strength=medium attempts=1 temp=0.7 seed=1
+
+=== attempt 1: asking Glimmer (g_h9_medium_s1_10302354_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 7733, "gen_seconds": 308.2, "temp": 0.7, "seed": 1001, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 6922, "variant": "g_h9_medium_s1_10302354_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s1_10302354_a1
+variant g_h9_medium_s1_10302354_a1 (fdef55dd79e2) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s1_10302354_a1
+L3=1.21; h8_check FAIL
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s1_20261030-235447
+run h9_guided_medium_t0.7_s2_20261031-000231: arm=guided strength=medium attempts=1 temp=0.7 seed=2
+
+=== attempt 1: asking Glimmer (g_h9_medium_s2_10310002_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 6701, "gen_seconds": 266.7, "temp": 0.7, "seed": 1002, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 5883, "variant": "g_h9_medium_s2_10310002_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s2_10310002_a1
+variant g_h9_medium_s2_10310002_a1 (679b00e188e7) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s2_10310002_a1
+L3=1.21; h8_check FAIL
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s2_20261031-000231
+run h9_guided_medium_t0.7_s3_20261031-000924: arm=guided strength=medium attempts=1 temp=0.7 seed=3
+
+=== attempt 1: asking Glimmer (g_h9_medium_s3_10310009_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 4864, "gen_seconds": 194.5, "temp": 0.7, "seed": 1003, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 4148, "variant": "g_h9_medium_s3_10310009_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s3_10310009_a1
+variant g_h9_medium_s3_10310009_a1 (9cbf6ee10dbf) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s3_10310009_a1
+cost run failed
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s3_20261031-000924
+run h9_guided_medium_t0.7_s4_20261031-001357: arm=guided strength=medium attempts=1 temp=0.7 seed=4
+
+=== attempt 1: asking Glimmer (g_h9_medium_s4_10310013_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 5067, "gen_seconds": 202.8, "temp": 0.7, "seed": 1004, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 4225, "variant": "g_h9_medium_s4_10310013_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s4_10310013_a1
+variant g_h9_medium_s4_10310013_a1 (5fb62364bdd9) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s4_10310013_a1
+L3=1.21; h8_check FAIL
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s4_20261031-001357
+run h9_guided_medium_t0.7_s5_20261031-001956: arm=guided strength=medium attempts=1 temp=0.7 seed=5
+
+=== attempt 1: asking Glimmer (g_h9_medium_s5_10310019_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 5724, "gen_seconds": 228.6, "temp": 0.7, "seed": 1005, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 5031, "variant": "g_h9_medium_s5_10310019_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s5_10310019_a1
+variant g_h9_medium_s5_10310019_a1 (d02ece9cad15) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s5_10310019_a1
+cost run failed
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s5_20261031-001956
+run h9_guided_medium_t0.7_s6_20261031-002502: arm=guided strength=medium attempts=1 temp=0.7 seed=6
+
+=== attempt 1: asking Glimmer (g_h9_medium_s6_10310025_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 4373, "gen_seconds": 175.1, "temp": 0.7, "seed": 1006, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 3563, "variant": "g_h9_medium_s6_10310025_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s6_10310025_a1
+variant g_h9_medium_s6_10310025_a1 (e5b3d7e3aec0) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s6_10310025_a1
+L3=1.23; h8_check FAIL
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s6_20261031-002502
+run h9_guided_medium_t0.7_s7_20261031-003026: arm=guided strength=medium attempts=1 temp=0.7 seed=7
+
+=== attempt 1: asking Glimmer (g_h9_medium_s7_10310030_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 6517, "gen_seconds": 259.4, "temp": 0.7, "seed": 1007, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 5861, "variant": "g_h9_medium_s7_10310030_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s7_10310030_a1
+variant g_h9_medium_s7_10310030_a1 (35aae5e56dca) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s7_10310030_a1
+cost run failed
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s7_20261031-003026
+run h9_guided_medium_t0.7_s8_20261031-003603: arm=guided strength=medium attempts=1 temp=0.7 seed=8
+
+=== attempt 1: asking Glimmer (g_h9_medium_s8_10310036_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 4473, "gen_seconds": 179.3, "temp": 0.7, "seed": 1008, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 3713, "variant": "g_h9_medium_s8_10310036_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_s8_10310036_a1
+variant g_h9_medium_s8_10310036_a1 (44bf2d5e7ddd) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_s8_10310036_a1
+L3=1.23; h8_check FAIL
+
+No passing variant after 1 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_t0.7_s8_20261031-003603
+=== SUMMARY (best-of-8) ===
+g_h9_medium_s1_10302354_a1,True,ok,PASS (bit-exact),L3=1.21; h8_check FAIL
+g_h9_medium_s2_10310002_a1,True,ok,PASS (bit-exact),L3=1.21; h8_check FAIL
+g_h9_medium_s3_10310009_a1,True,ok,PASS (bit-exact),cost run failed
+g_h9_medium_s4_10310013_a1,True,ok,PASS (bit-exact),L3=1.21; h8_check FAIL
+g_h9_medium_s5_10310019_a1,True,ok,PASS (bit-exact),cost run failed
+g_h9_medium_s6_10310025_a1,True,ok,PASS (bit-exact),L3=1.23; h8_check FAIL
+g_h9_medium_s7_10310030_a1,True,ok,PASS (bit-exact),cost run failed
+g_h9_medium_s8_10310036_a1,True,ok,PASS (bit-exact),L3=1.23; h8_check FAIL
+no sample passed all checks
+BATCH DONE

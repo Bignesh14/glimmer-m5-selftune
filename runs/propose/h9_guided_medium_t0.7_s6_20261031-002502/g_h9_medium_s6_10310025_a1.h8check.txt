@@ -1,0 +1,9 @@
+mlx 0.32.4 / mlx_lm 0.32.2 | model Muse-Glimmer-30B-4bit (4-bit) | weights 19414804113 bytes | MLX_ENABLE_TF32=unset (default 1) | mode bf16 | K=2 n_min=2 | tie tolerance 0.125 nats | variant g_h9_medium_s6_10310025_a1 (e5b3d7e3aec0) | git 6983109
+selftune ium_p2_20261028-072922#8 prompt 13759 | 52 wrong, 2 near-ties (worst 23.016 nats) | vs golden: n/a | 2.12 tok/pass, accepted 80% | H8 18.1 tok/s incl. prefill
+    WRONG at 0: normal decoding picks 328, H8 gave 517, margin 23.0156
+    WRONG at 1: normal decoding picks 262, H8 gave 4243, margin 0.25
+    WRONG at 3: normal decoding picks 1740, H8 gave 198, margin 6.8125
+    WRONG at 4: normal decoding picks 1488, H8 gave 2991, margin 0.375
+    WRONG at 9: normal decoding picks 24, H8 gave 517, margin 8.375
+saved runs/h8/h8_check_bf16_g_h9_medium_s6_10310025_a1_20261031-003026.json
+VERDICT: FAIL (52 wrong tokens)

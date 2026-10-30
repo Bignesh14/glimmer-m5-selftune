@@ -1,0 +1,57 @@
+{
+  "time": "2026-10-31 00:30:26",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "mode": "bf16",
+  "variant": "g_h9_medium_s6_10310025_a1",
+  "variant_sha": "e5b3d7e3aec0",
+  "tie_tol": 0.125,
+  "k": 2,
+  "n_min": 2,
+  "results": [
+    {
+      "case": "selftune ium_p2_20261028-072922#8",
+      "prompt_tokens": 13759,
+      "tokens": 512,
+      "wrong": 52,
+      "ties": 2,
+      "worst_margin": 23.015625,
+      "first_wrongs": [
+        {
+          "pos": 0,
+          "normal": 328,
+          "h8": 517,
+          "margin": 23.0156
+        },
+        {
+          "pos": 1,
+          "normal": 262,
+          "h8": 4243,
+          "margin": 0.25
+        },
+        {
+          "pos": 3,
+          "normal": 1740,
+          "h8": 198,
+          "margin": 6.8125
+        },
+        {
+          "pos": 4,
+          "normal": 1488,
+          "h8": 2991,
+          "margin": 0.375
+        },
+        {
+          "pos": 9,
+          "normal": 24,
+          "h8": 517,
+          "margin": 8.375
+        }
+      ],
+      "golden_first_diff": null,
+      "passes": 242,
+      "tok_per_pass": 2.115702479338843,
+      "drafted_share": 0.8347107438016529,
+      "accept_rate": 0.8011869436201781
+    }
+  ]
+}

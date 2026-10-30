@@ -1,0 +1,14 @@
+{
+ "prompt_tokens": 3885,
+ "gen_tokens": 5067,
+ "gen_seconds": 202.8,
+ "temp": 0.7,
+ "seed": 1004,
+ "hit_max_tokens": false,
+ "peak_mem_gb": 16.61,
+ "reasoning_tokens": 4225,
+ "variant": "g_h9_medium_s4_10310013_a1",
+ "strength": "medium",
+ "visible_answer": true,
+ "code_found": true
+}

@@ -1,0 +1,391 @@
+ to=self<|message|>You are Muse Glimmer. Below is exact Python source code...
+
+We need make 3-token forward pass cheaper at long context, by changing model code. Rules: one-token decoding and prompt processing must stay BIT-IDENTICAL (EXACT=True). Only forward passes of 2 to 8 tokens may change. Outputs must be same attention computed differently (tiny rounding differences allowed there).
+
+We have MLX fast.scaled_dot_product_attention has fused vector kernel for short queries (query length <=8), but only if query_length x (number of query heads / number of key-value heads) <=32. Otherwise falls back to unfused implementation whose cost grows with number of keys.
+
+We have 32 query heads and 2 kv heads. So ratio = 32/2 =16. Condition: query_length *16 <=32 => query_length <=2. So for query length 3, condition fails. So 3-token pass uses unfused which is expensive at long context.
+
+Goal: make 3-token forward pass cheaper at long context, drop below 1.40x (stock 1.44x). Need to change model code to avoid unfused.
+
+We can change Attention.__call__ to split query into chunks? Since prompt-lookup decoding uses 3-token pass: last token +2 guesses. Could we make forward pass for 2-8 tokens use a trick to keep query_length effective <=2? Perhaps we can process tokens sequentially within the same forward pass? But must keep outputs same attention computed differently.
+
+We need to modify Attention.__call__ to when L is between 2 and 8 inclusive, and maybe context long? Hmm.
+
+The kernel condition depends on query_length x heads_ratio <=32. heads_ratio =16. So max query_length for fused is 2. So if we can make query_length effectively 2 per call, we can use fused kernel.
+
+We could split the 3-token query into two calls: first 2 tokens, then 1 token? But that would change API? Attention.__call__ receives x of shape B,L,_. If L=3, we could process first 2 tokens with fused kernel, and third token separately? But output must be same attention computed differently. Could we compute attention for the 3 tokens by doing two forward passes inside Attention.__call__? That would be two scaled_dot_product_attention calls, each with smaller query length. That might be cheaper? Possibly.
+
+But we must keep one-token decoding bit-identical. So only when L in 2..8 we can change.
+
+Idea: for query length >2 and <=8, split into chunks of size <=2 to stay within fused kernel condition. Since attention is causal? Mask is "causal" or array. For causal mask, the attention for token i only depends on keys up to i. If we split queries, each chunk's attention still depends on all previous keys (including those from earlier chunks in same batch?). Might need to ensure correctness.
+
+If we process queries in order, we can for each chunk compute attention with full key cache (which includes previous keys). Since attention is independent per query token, we can compute them separately. So splitting into smaller query lengths should give same result (up to rounding). Since scaled_dot_product_attention is linear in queries.
+
+Thus we can modify Attention.__call__ to if L between 2 and 8 inclusive, and maybe cache is not None (i.e., decoding), we can split q,k,v into smaller chunks with query length <=2 to trigger fused kernel.
+
+But note k and v are from cache.update_and_fetch which returns full cache? Actually cache.update_and_fetch(k,v) returns updated k,v for current step? Let's see: cache.update_and_fetch(k,v) likely returns k,v for all cached keys? In typical KVCache, update_and_fetch returns the concatenated cache. So k has shape (B, n_kv_heads, L, head_dim). If we split q into chunks, we still need k,v for all keys (which includes previous context). That's fine.
+
+The condition for fused kernel depends on query_length x heads_ratio <=32. So we can choose chunk size =2 for L=3,4,... up to 8. For L=3, we can do chunk1 size2, chunk2 size1. Both satisfy.
+
+But we need to ensure mask handling is correct. Mask is either None, "causal", or array. If mask is "causal", the scaled_dot_product_attention will handle masking internally based on query length and key length? Might be tricky if we split.
+
+Alternative: we can transpose to make query_length smaller? Hmm.
+
+Simpler: in Attention.__call__, before calling scaled_dot_product_attention, if L>2 and L<=8, we can loop over chunks: for each chunk, slice q, compute attention separately, concatenate results. This keeps same numerical result (maybe rounding difference due to different summation order). Rounding differences allowed.
+
+Would this be cheaper? Each chunk will use fused kernel (since query_length <=2). Cost of multiple forward passes: for L=3, we do two passes: 2 tokens and 1 token. Cost relative to 1-token pass: 1.07x for 2-token, 1.07? Actually 2-token pass cost is 1.07x? Wait measured: 2-token pass 1.07x, 3-token pass 1.25x. If we split 3 into 2+1, cost ~ (1.07+1.00)/? Hmm not additive? If we do two separate calls within same Attention, overhead maybe sum. Might be ~1.07+1.00 =2.07 vs 1.25? That's worse.
+
+Better to keep one call but with query length 2? Could we pad? Hmm.
+
+Alternative approach: we can swap query and key dimensions? No.
+
+Another idea: the condition is query_length * (num_query_heads / num_kv_heads) <=32. num_query_heads / num_kv_heads =16. So query_length <=2. Could we temporarily reduce number of query heads? No.
+
+Could we change attention to process with query length 2 by reordering tokens? For prompt-lookup decoding, the 3 tokens are last token +2 guesses. The guesses are independent? Maybe we can compute attention for the 3 tokens in a way that uses only 2 tokens at a time by using the fact that the last token is already computed? Hmm.
+
+Wait prompt-lookup decoding: when last 2 tokens appear earlier, we guess next 2 tokens. So we need to compute logits for 3 tokens: the actual last token (already known) + 2 guesses. The last token's logits are already known from previous step? Might be able to skip recomputing it? But attention for guesses depends on last token as key.
+
+Alternative: Use the fact that for causal attention, the computation for token i only depends on keys up to i. If we split into chunks, we can keep k,v same.
+
+Maybe the cost saving comes from using fused kernel for query length 2 vs 3. The fused kernel is cheaper than unfused. So splitting into 2+1 might still be cheaper than unfused 3? Let's estimate: unfused cost grows with number of keys. Fused cost is constant-ish. So two fused passes (2 tokens +1 token) might be cheaper than one unfused 3-token pass. 2-token pass cost is 1.07x (fused). 1-token pass cost is 1.00x (fused). Sum ~2.07x if sequential. But we can do them in same function call, overhead of Python loop small. Hmm.
+
+Maybe we can just for L=3, we can drop the first token of the 3? No, must keep same output.
+
+Alternative approach: we can change the query length by reshaping? Could we process queries with query_length=2 by using a trick: for L=3, we can compute attention for tokens 1-2 with query length2, and token3 with query length1 but using same k,v. That's what we said.
+
+But maybe we can use a single call with query_length=2 by reusing previous output? Hmm.
+
+Another idea: the condition for fused kernel also requires query length <=8. So 3 is okay. The extra condition is query_length * heads_ratio <=32. So if we could reduce heads_ratio temporarily by using GQA? Can't.
+
+Could we swap query heads to reduce effective ratio? Could we process heads in batches? If we split heads into two groups, each with fewer heads, the condition becomes query_length * (num_heads_per_group / num_kv_heads) <=32. If we process half heads at a time, effective heads ratio halves to 8, then query_length 3 *8=24 <=32, so fused kernel applies! That might be better: split query heads dimension into chunks.
+
+Since attention is per-head independent, we can split heads into chunks where each chunk has <=2 heads? Let's compute: we need (query_length)*(heads_in_chunk / kv_heads) <=32. heads_in_chunk / kv_heads = heads_in_chunk /2. So need query_length * heads_in_chunk <=64. For query_length=3, heads_in_chunk <=21. So we could split 32 heads into two groups of 16 each: 3*16=48 <=64, so condition satisfied! Wait earlier condition was query_length * (num_query_heads / num_kv_heads) <=32. That's for whole tensor. If we split heads, each call has fewer heads, so condition may hold.
+
+Thus we can split heads into chunks to keep product <=32. That would still be one call per chunk but with smaller head count. Might be cheaper than unfused.
+
+Which is better: split heads vs split tokens? Possibly splitting heads keeps query length 3, which might be fine.
+
+The kernel condition uses number of query heads / number of key-value heads. If we split heads, each call has fewer query heads. The kernel will be invoked with smaller heads.
+
+Implementation: in Attention.__call__, after q,k,v reshaped, we could loop over head groups.
+
+Simpler: we can just for L in 2..8, if L>2, we can process heads in chunks of size such that L * (chunk_heads / kv_heads) <=32. For L=3, chunk_heads <=21 (since 3*21/2=31.5). So chunk size 16 works. So we can split 32 heads into 2 chunks of 16. That would give 2 calls with query_length 3 and heads 16 each. Each call will use fused kernel. Cost ~2 * cost of 3-token with 16 heads. Might be cheaper than one unfused with 32 heads.
+
+We need to ensure output is same.
+
+Probably simplest: split query length into chunks of size 2 to guarantee fused kernel regardless of heads. That guarantees fused.
+
+But maybe splitting heads is cheaper because we keep vectorization over tokens.
+
+Given time, I'll implement a generic splitting for query length >2 and <=8 to ensure query_length * heads_ratio <=32 by splitting heads into chunks. That will keep query length same, but reduce heads per call.
+
+Implementation steps:
+
+In Attention.__call__:
+After q,k,v transposed, we have q shape (B, n_heads, L, head_dim). If L in [2,8] and L>2 and cache is not None? Might also apply for prompt processing? Prompt processing is one-token? Hmm.
+
+We need to only change forward passes of 2 to 8 tokens. So if L between 2 and 8 inclusive, we can modify.
+
+We can check if L>2 and L<=8 and cache is not None (decoding). Then we split heads into chunks.
+
+Simpler: split query into chunks of size max_chunk where max_chunk = max(1, 32 // (L * (n_heads / n_kv_heads)))? Hmm.
+
+Alternative: just if L>2, we split into chunks of size 2 tokens each. That guarantees fused. Might be simpler.
+
+Let's pick head splitting because it keeps token order.
+
+Let's design: if 2 < L <=8:
+   # Determine max heads per call to satisfy fused condition
+   max_heads = int(32 * n_kv_heads // (L * n_heads?) Wait formula: query_length * (heads_chunk / kv_heads) <=32 => heads_chunk <= 32 * kv_heads / query_length.
+   max_heads_per_call = floor(32 * n_kv_heads / L). For n_kv_heads=2, L=3 => max_heads = floor(64/3)=21. So we can take chunk size 16 or 21.
+
+We can loop over head indices in steps of max_heads.
+
+Implementation: heads = range(n_heads). For each chunk, slice q[:, start:end, :, :], similarly for k,v? k,v have n_kv_heads, not n_heads. Wait k,v have n_kv_heads =2. So k,v shape (B, n_kv_heads, L, head_dim). When we compute attention, queries have n_heads, keys have n_kv_heads. The scaled_dot_product_attention expects queries and keys with different head counts? In MLX, it handles GQA via repeating keys? Actually q is (B, n_heads, L, head_dim), k is (B, n_kv_heads, L, head_dim). The function handles it.
+
+If we slice q heads, k stays same. That's okay.
+
+So we can loop over head chunks, compute attention for each chunk, concatenate along heads dimension.
+
+Will this give same result? Yes, sum of outputs.
+
+Complexity: number of chunks = ceil(32/21)=2. So two calls.
+
+Cost: 2 * cost of 3-token with 16 heads. Might be ~? Could be cheaper than unfused.
+
+Let's implement in Attention.__call__.
+
+We need to keep EXACT=True? The variant file has EXACT = True? The rule says one-token decoding and prompt processing must stay BIT-IDENTICAL to original (set EXACT = True). The variant file template has EXACT = True. Maybe we can keep EXACT=True but only change for 2-8 tokens. That's allowed.
+
+We need to modify model code via apply() patch.
+
+Simpler: monkey-patch Attention.__call__.
+
+Implement apply() that replaces Attention.__call__ with custom version.
+
+We must import classes from mlx_lm.models.muse_glimmer.
+
+We'll create a new Attention class? Or patch method.
+
+Easier: in apply(), import muse_glimmer, save original Attention.__call__, define new __call__.
+
+Let's craft variant file.
+
+We need to ensure imports allowed.
+
+Implement:
+
+NAME = "v..."
+EXACT = True
+DESCRIPTION = ...
+
+def apply():
+   from mlx_lm.models import muse_glimmer
+   orig_call = muse_glimmer.Attention.__call__
+   def new_call(self, x, mask=None, cache=None):
+       ...
+   muse_glimmer.Attention.__call__ = new_call
+
+Need to preserve original behavior for L==1 or L>8 or L<2.
+
+Implementation details:
+
+def new_call(self, x, mask=None, cache=None):
+    B, L, _ = x.shape
+    # original steps up to out = scaled_dot_product_attention...
+    # replicate original code but with splitting.
+
+We can copy original code and modify.
+
+Let's reproduce original __call__ code, then add splitting.
+
+Original steps:
+
+q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+k = ...
+v = ...
+q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+k = mx.fast.rms_norm(k, None, self.eps)
+q = q.transpose(0,2,1,3)
+k = k.transpose(0,2,1,3)
+v = v.transpose(0,2,1,3)
+if self.use_rope: ...
+if cache is not None: k, v = cache.update_and_fetch(k, v)
+out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+out = out.transpose(0,2,1,3).reshape(B, L, -1)
+out = out * mx.sigmoid(self.gate_proj(x))
+return self.o_proj(out)
+
+We can modify after k,v prepared.
+
+If L >2 and L <=8 and cache is not None (since decoding). Maybe also when mask is "causal"? Could be prompt processing with multiple tokens? Prompt processing uses L large? Could be 2-8 tokens in prompt? Might be okay.
+
+We can check if 2 < L <=8.
+
+If condition holds, we need to split heads.
+
+Compute max_heads_per_call = max(1, int(32 * self.n_kv_heads // L))  # floor
+If max_heads_per_call >= self.n_heads: just do original.
+
+Else split.
+
+Implementation loop:
+
+outputs = []
+for start in range(0, self.n_heads, max_heads_per_call):
+    end = min(start+max_heads_per_call, self.n_heads)
+    q_chunk = q[:, start:end, :, :]
+    # k,v unchanged
+    out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+    outputs.append(out_chunk)
+out = mx.concatenate(outputs, axis=1)
+
+Then continue.
+
+Potential issue: mask handling with chunked heads? Should be fine.
+
+Also need to ensure cache.update_and_fetch is done once before loop, not per chunk.
+
+Edge: when using rope, q already transformed.
+
+Now cost: for L=3, max_heads_per_call = floor(64/3)=21. So chunk size 21, remaining 11. So 2 calls. Might be okay.
+
+For L=8, max_heads = floor(64/8)=8. So 4 calls.
+
+Might still be cheaper.
+
+Alternative split tokens to guarantee fused. Might be better.
+
+Let's think about cost: unfused cost grows with number of keys. Splitting heads keeps number of keys same, but reduces heads per call. Might reduce cost linearly with heads.
+
+If we split heads into 2 chunks of 16, cost ~2 * (cost with 16 heads). Original unfused cost with 32 heads. Might be similar.
+
+Maybe splitting tokens into 2 tokens per call is more efficient because fused kernel is much cheaper.
+
+We could combine both: ensure query_length <=2 to guarantee fused kernel regardless of heads. That seems safest.
+
+Let's attempt token splitting: if L>2 and L<=8, we can process in chunks of size 2 (max for fused). That guarantees fused kernel.
+
+Implementation:
+
+If 2 < L <=8:
+   outputs = []
+   for start in range(0, L, 2):
+      end = min(start+2, L)
+      q_chunk = q[:, :, start:end, :] ? Wait q shape is (B, n_heads, L, head_dim). So we need to slice dim 2.
+
+We can slice q[:, :, start:end, :] and similarly for? k and v remain full? If we slice q only, attention for chunk tokens will still see all keys (including future tokens within chunk?). For causal attention, token at position start+1 should not see token at start+2 if start+2 is within chunk? Actually within chunk, the query at position end-1 should not see later positions within chunk beyond its index. Since we slice q, but k,v remain full (including all positions up to L). The scaled_dot_product_attention with causal mask will handle masking based on query position relative to keys. If we slice q to a contiguous range, the relative positions are preserved, so masking works.
+
+But we also need to ensure that when we compute chunk with start..end, the keys for those queries should include only keys up to their position. Since k contains all keys for all L positions, and mask is causal, it's fine.
+
+However, the output shape must match. We can concatenate along L dimension.
+
+Thus we can loop over token chunks.
+
+This will use fused kernel because query_length <=2.
+
+Cost: for L=3, we do 2 calls: first 2 tokens, second 1 token. That's 2 calls.
+
+Might be acceptable.
+
+Which is better? Hard to know.
+
+Given the fused kernel condition also requires query_length <=8, which holds. So token splitting ensures condition regardless of heads.
+
+I'll go with token splitting for simplicity and guarantee fused.
+
+Implementation details:
+
+After transposing q,k,v, we have q shape (B, n_heads, L, head_dim).
+
+If 2 < L <=8:
+   out_parts = []
+   for i in range(0, L, 2):
+      q_slice = q[:, :, i:i+2, :]
+      out_slice = scaled_dot_product_attention(q_slice, k, v, cache=cache, scale=self.scale, mask=mask)
+      out_parts.append(out_slice)
+   out = mx.concatenate(out_parts, axis=2)
+Else:
+   out = scaled_dot_product_attention(...)
+
+But note mask handling: if mask is "causal", the scaled_dot_product_attention expects query length and key length. If we slice q, the query positions are absolute? The mask is based on relative positions? In MLX, causal mask is aligned to end of keys. If we slice q to a subrange, the positions are not at the end? Might break.
+
+Alternative: we could keep q full but reshape to make query_length smaller by splitting heads? Hmm.
+
+Maybe token slicing changes positional offsets for rope? Rope already applied to q before slicing, so okay.
+
+Causal mask alignment: MLX aligns causal mask to end of keys. If we slice q to first 2 tokens, the positions are 0,1, but the key length is full. The mask will allow queries to see keys up to their position within the whole sequence? Might still be okay because the positions are preserved in the tensor values (rope applied). The mask is based on query index within the q tensor, not absolute position. If we slice q to first 2 tokens, the query index 0,1 will be treated as if they are at positions 0,1 relative to start of q. The causal mask will allow them to see keys 0..? It will assume keys are aligned to end. Might be off.
+
+Better to keep original positions by passing the whole q but with a trick to reduce effective query length.
+
+Hmm.
+
+Alternative simpler: we can just for L=3, we can process with query_length=2 by dropping the first token? No.
+
+Maybe the safest is to split heads, not tokens, because positions remain same.
+
+Let's go with head splitting.
+
+Implement apply() patch.
+
+We'll need to import scaled_dot_product_attention from .base.
+
+Let's craft final variant file.
+
+We'll keep EXACT=True.
+
+Implementation steps in apply():
+
+from mlx_lm.models.muse_glimmer import Attention
+original_call = Attention.__call__
+
+Define new_call(self, x, mask=None, cache=None):
+
+B,L,_ = x.shape
+... same as original up to k,v prepared.
+
+If cache is not None and 2 < L <=8:
+   max_heads = 32 * self.n_kv_heads // L  # integer division
+   if max_heads < self.n_heads:
+       # split
+       ...
+
+Else use original.
+
+Need to ensure we don't change when cache is None (prompt processing). Prompt processing may have L up to maybe 8? Could be. But rule says only forward passes of 2 to 8 tokens may change. Prompt processing with L=3 might be okay? Might be bit-exact required? It says one-token decoding and prompt processing must stay BIT-IDENTICAL. Prompt processing may involve multiple tokens. Hmm ambiguous. Probably prompt processing is done with large L, not 2-8. Might be safe.
+
+We'll limit to cache is not None (decoding) and L between 3 and 8 inclusive.
+
+Implement.
+
+Let's produce final file.<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_head_split — split query heads to stay in fused SDPA kernel for 3-8 token passes."""
+
+NAME = "v1_head_split"
+EXACT = True
+DESCRIPTION = "Split query heads for 3-8 token decoding passes to keep query_length * heads_ratio <=32 and use fused SDPA kernel."
+
+def apply():
+    from mlx_lm.models import muse_glimmer
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    orig_call = muse_glimmer.Attention.__call__
+
+    def new_call(self, x: mx.array, mask=None, cache=None):
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # For 3-8 token decoding passes keep the fused vector kernel.
+        # Fused condition: query_length * (n_heads / n_kv_heads) <= 32
+        # -> max heads per call = floor(32 * n_kv_heads / L)
+        if cache is not None and 2 < L <= 8:
+            max_heads = 32 * self.n_kv_heads // L
+            if max_heads > 0 and max_heads < self.n_heads:
+                parts = []
+                for start in range(0, self.n_heads, max_heads):
+                    end = min(start + max_heads, self.n_heads)
+                    q_chunk = q[:, start:end, :, :]
+                    out_chunk = scaled_dot_product_attention(
+                        q_chunk, k, v, cache=cache, scale=self.scale, mask=mask
+                    )
+                    parts.append(out_chunk)
+                out = mx.concatenate(parts, axis=1)
+            else:
+                out = scaled_dot_product_attention(
+                    q, k, v, cache=cache, scale=self.scale, mask=mask
+                )
+        else:
+            out = scaled_dot_product_attention(
+                q, k, v, cache=cache, scale=self.scale, mask=mask
+            )
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    muse_glimmer.Attention.__call__ = new_call
+
+
+def post_load(model):
+    pass
+```

@@ -1,0 +1,474 @@
+ to=self<|message|>You are Muse Glimmer. Below is exact Python source code...
+We need make 3-token forward pass cheaper at long context, by changing model code.
+
+Rules: one-token decoding and prompt processing must stay BIT-IDENTICAL to original (set EXACT = True): only forward passes of 2 to 8 tokens may change. In those passes outputs must be same attention computed differently (tiny rounding differences allowed).
+
+Allowed imports only...
+
+Peak memory <25GB.
+
+Change to make 3-token forward pass cheaper at long context. MLX FACT: mx.fast.scaled_dot_product_attention has fused "vector" kernel for short queries (query length <=8), but only if query_length x (number of query heads / number of key-value heads) <=32. Otherwise falls back to unfused implementation whose cost grows with number of keys.
+
+We have 32 query heads and 2 key-value heads. So ratio = 32/2 =16. Condition: query_length *16 <=32 => query_length <=2. So for query length 3, condition fails: 3*16=48 >32. So fused kernel not used for 3-token pass. That's why cost high.
+
+We need make 3-token forward pass cheaper. We can change model code to avoid using scaled_dot_product_attention with query length 3 when context long? Could split into smaller chunks? Or process 3 tokens as 2+1? Prompt-lookup decoding uses last 2 tokens to guess next 2 tokens. The forward pass of 3 tokens (last token +2 guesses). We can change Attention.__call__ to when L is small (2-8) and cache present (i.e., decoding), we can process queries in smaller sub-batches to fit fused kernel condition.
+
+The condition for fused kernel: query_length <=8 and query_length * (n_heads / n_kv_heads) <=32.
+
+n_heads/n_kv_heads =16. So max query_length for fused = floor(32/16)=2. So query length 2 works, 3+ fails.
+
+Thus we want to avoid calling scaled_dot_product_attention with query length 3. Could split into two calls: first 2 tokens, then 1 token? But need same attention output.
+
+If we split query into two parts: first 2 tokens, then 1 token. The attention for the 1 token depends on previous queries? No, each query independent. So we can compute attention in two passes: first with first 2 queries, second with remaining 1 query. That would keep same result (since attention is per query). Cost: two forward passes. But each pass uses fused kernel? First pass query_length=2 -> condition satisfied (2*16=32 <=32). Second pass query_length=1 -> 1*16=16 <=32. So both use fused kernel. Total cost maybe less than one 3-token unfused pass? Possibly.
+
+But we must ensure one-token decoding stays bit-identical. Also prompt processing must stay identical. Only forward passes of 2-8 tokens may change.
+
+We can modify Attention.__call__ to detect when L is between 2 and 8 inclusive, and cache is not None (i.e., decoding), and query length * ratio >32, then split into chunks of size <=2.
+
+But we need to keep outputs same attention computed differently (tiny rounding allowed). Splitting is fine.
+
+Also need to ensure mask handling works.
+
+Implementation: In Attention.__call__, after q,k,v prepared, before scaled_dot_product_attention, if B? Actually B=1? Could be batch. We need general.
+
+Simplify: if L >2 and L <=8 and cache is not None? Actually prompt processing may have L up to? Prompt processing is usually larger. But rule says only forward passes of 2 to 8 tokens may change. So we can restrict to L in 2..8.
+
+We also need to ensure that for sliding window layers, mask is array shape (...,L,K). Splitting may break mask? Mask may be causal or sliding window array. If we split queries, we need to apply mask correctly per chunk. The mask is same for all queries? In causal case mask is string "causal". That's fine. For sliding window, mask is array of shape (..., L, K). Splitting queries means we need to slice mask accordingly.
+
+Simpler: only apply splitting when mask is None or "causal". For sliding window mask (array), splitting may be more complex. But maybe sliding window layers have short context anyway? Sliding window size 2048, but context long 13k, so keys are limited to window. Might still be expensive.
+
+Alternative: we can change query heads to be processed in groups to reduce effective heads? Could we reshape queries to reduce heads per call? Hmm.
+
+Another approach: Use the fact that n_heads / n_kv_heads =16. Condition is query_length * 16 <=32. So max query_length 2. Could we temporarily reduce number of query heads per call by splitting heads into groups? That would reduce ratio? Query length * (num_query_heads_used / n_kv_heads) <=32. If we split heads into chunks of 16 heads? Actually n_heads=32. If we process half heads at a time, effective heads per call =16, ratio=16/2=8, then query_length up to 4. For query_length=3, 3*8=24 <=32, so fused works. That might be cheaper than splitting queries.
+
+Which is better? Splitting queries gives 2 calls. Splitting heads gives 2 calls of 16 heads each. Might be similar.
+
+We need to ensure outputs match. Splitting heads and concatenating results should be bit-identical (since linear). Attention is per head independent. So we can split heads.
+
+Maybe easier: just split query length into chunks of size 2. That ensures fused kernel.
+
+Implementation plan: Modify Attention.__call__ to wrap scaled_dot_product_attention call.
+
+We need to patch classes. Use apply() to monkey-patch Attention.__call__ or replace Attention class.
+
+Simpler: define a custom Attention subclass or monkey-patch __call__.
+
+We can in apply() import mlx_lm.models.muse_glimmer as mg, then replace mg.Attention.__call__ with a new function that does splitting.
+
+But we must keep EXACT=True? The variant file has EXACT = True? In template EXACT=True. The rule says one-token decoding and prompt processing must stay BIT-IDENTICAL to original (set EXACT=True). So we keep EXACT=True.
+
+The variant may patch classes.
+
+Let's design new AttentionCall wrapper.
+
+Pseudo:
+
+original_call = Attention.__call__
+
+def new_call(self, x, mask=None, cache=None):
+   ... compute q,k,v as original up to before scaled_dot_product_attention
+   ... if cache is not None and 2 <= L <=8:
+        # split into chunks
+        # we can loop over chunks of size max_chunk =2 (or maybe compute max allowed)
+        # For each chunk, slice q, k?, v? k,v are same for all chunks (since cache already updated). Actually k,v are from cache, not per chunk.
+   But scaled_dot_product_attention expects queries, keys, values. Keys/values are from cache, which may be large. If we slice queries, we can still pass same keys/values but with smaller query length.
+
+Thus we can implement loop:
+
+outputs = []
+start=0
+while start < L:
+   chunk_len = min(max_chunk, L - start)
+   q_chunk = q[:, start:start+chunk_len] ??? Wait q shape after transpose is (B, n_heads, L, head_dim). Actually after transpose: q shape (B, n_heads, L, head_dim). So we need to slice dim 2.
+
+Simpler: keep q as (B, L, n_heads, head_dim) before transpose? Let's replicate original steps.
+
+Original code:
+q = q_proj(x).reshape(B, L, n_heads, head_dim)
+...
+q = q.transpose(0,2,1,3) -> shape (B, n_heads, L, head_dim)
+Similarly k,v.
+
+Then out = scaled_dot_product_attention(q, k, v, ...)
+
+If we split along L dimension, we can slice q[:, :, start:start+chunk_len, :] .
+
+We need to keep same order.
+
+Implementation steps in new __call__:
+
+- compute q,k,v as before
+- if use_rope etc.
+- if cache is not None:
+   k,v = cache.update_and_fetch(k,v)
+- Now if we want to split:
+   if cache is not None and 2 <= L <=8:
+       max_q_len = 32 // (self.n_heads // self.n_kv_heads)  # =2
+       if L > max_q_len:
+           # split
+           ...
+   else:
+       out = scaled_dot_product_attention(...)
+
+We need to ensure mask handling: if mask is string "causal", we can pass same mask each chunk. If mask is array, we need to slice mask along query dimension.
+
+For causal mask, mx.fast.scaled_dot_product_attention handles string.
+
+For sliding window mask, mask is array shape (..., L, K). If we slice queries, we need corresponding slice of mask.
+
+Simplify: only apply splitting when mask is None or "causal". For sliding window layers, maybe context is limited to window anyway, so cost may be lower? But still query length 3 >2. Might still benefit.
+
+Alternative: always split regardless of mask, but need to slice mask array.
+
+We can handle generic: if mask is mx.array, we need to slice mask[..., start:start+chunk_len, :] . That's fine.
+
+If mask is "causal" or None, pass as is.
+
+Implementation details:
+
+def chunked_sdpa(q, k, v, cache, scale, mask):
+   B, n_heads, L, hd = q.shape
+   max_len = 32 // (self.n_heads // self.n_kv_heads)  # 2
+   if L <= max_len:
+       return scaled_dot_product_attention(q,k,v,cache,scale,mask)
+   # else split
+   outs = []
+   start=0
+   while start < L:
+      chunk_len = min(max_len, L-start)
+      q_chunk = q[:, :, start:start+chunk_len, :]
+      # mask chunk
+      if isinstance(mask, mx.array):
+          mask_chunk = mask[..., start:start+chunk_len, :]
+      else:
+          mask_chunk = mask
+      out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache, scale, mask_chunk)
+      outs.append(out_chunk)
+      start += chunk_len
+   # concat
+   out = mx.concatenate(outs, axis=2)  # axis 2 is L
+   return out
+
+But note that k and v are same for all chunks, so fine.
+
+Potential issue: cache is used inside scaled_dot_product_attention? The function scaled_dot_product_attention just passes cache to quantized or mx.fast. The cache is not used in computation beyond being passed? Actually cache is passed to function, but inside quantized_scaled_dot_product_attention maybe uses cache? Hmm.
+
+In base scaled_dot_product_attention, cache is passed to quantized_scaled_dot_product_attention or to mx.fast. mx.fast.scaled_dot_product_attention probably doesn't use cache object, just queries/keys/values. So fine.
+
+Now we need to ensure that for L between 2 and 8, we split. For L=2, max_len=2, so no split. For L=3, split into 2+1.
+
+Will this keep outputs same? Yes, because attention per query independent.
+
+Potential rounding differences due to separate passes? Summation of softmax is per query independent, so same.
+
+Now about performance: Two passes of 2 and 1 tokens. Each uses fused kernel. Should be cheaper than one unfused 3-token pass.
+
+We need to ensure one-token decoding stays bit-identical: our condition requires cache is not None and 2 <= L <=8. For L=1, we don't split. Good.
+
+Prompt processing: cache is None, so we don't split. Good.
+
+Now implement variant file.
+
+We need NAME, EXACT, DESCRIPTION.
+
+Set EXACT=True.
+
+Implement apply():
+
+from mlx_lm.models import muse_glimmer as mg
+from mlx_lm.models.base import scaled_dot_product_attention as orig_sdpa
+
+We need to patch Attention.__call__.
+
+Better to create a wrapper class.
+
+Simplify: monkey-patch mg.Attention.__call__ with new function.
+
+We need to keep self attributes.
+
+Implementation steps in apply():
+
+original_attention_call = mg.Attention.__call__
+
+def patched_call(self, x, mask=None, cache=None):
+   B,L,_ = x.shape
+   ... replicate original code up to before scaled_dot_product_attention.
+
+We could just copy original code and insert splitting.
+
+Easier: replace entire __call__ method.
+
+Let's copy original code from source, modify.
+
+Original code:
+
+def __call__(self, x: mx.array, mask=None, cache=None) -> mx.array:
+    B, L, _ = x.shape
+
+    q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+    k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+    v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+    # Scaleless QK-norm over head_dim; Q additionally scaled.
+    q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+    k = mx.fast.rms_norm(k, None, self.eps)
+
+    q = q.transpose(0, 2, 1, 3)
+    k = k.transpose(0, 2, 1, 3)
+    v = v.transpose(0, 2, 1, 3)
+
+    if self.use_rope:
+        offset = cache.offset if cache is not None else 0
+        q = self.rope(q, offset=offset)
+        k = self.rope(k, offset=offset)
+
+    if cache is not None:
+        k, v = cache.update_and_fetch(k, v)
+
+    out = scaled_dot_product_attention(
+        q, k, v, cache=cache, scale=self.scale, mask=mask
+    )
+    out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+
+    # Glimmer's output gate.
+    out = out * mx.sigmoid(self.gate_proj(x))
+    return self.o_proj(out)
+
+We can modify to split before scaled_dot_product_attention.
+
+Implement helper to compute max_chunk_len:
+
+ratio = self.n_heads // self.n_kv_heads  # 16
+max_q_len = 32 // ratio  # 2
+
+If cache is not None and 2 <= L <= 8 and L > max_q_len:
+   split.
+
+Implementation details for mask slicing:
+
+if isinstance(mask, mx.array):
+   mask_sliced = mask[..., start:start+chunk_len, :]
+else:
+   mask_sliced = mask
+
+Now loop.
+
+Potential issue: cache.update_and_fetch returns k,v already updated with cache. If we split queries, k,v remain same. Good.
+
+Edge: for sliding window layers, mask is array created by create_attention_mask. That mask shape? Possibly (B, n_heads?, L, K). Actually create_attention_mask returns mask for attention? Hmm.
+
+Assume slicing works.
+
+Now implement variant.
+
+Also need post_load unchanged.
+
+Provide explanation.
+
+Potential pitfalls: The condition for fused kernel also requires query length <=8. We already restrict to L <=8.
+
+Also need to ensure we don't break when cache is None (prompt processing). Good.
+
+Memory <25GB fine.
+
+Now produce final answer with code block.
+
+Let's craft variant file.
+
+```python
+"""v1_chunked_sdpa ..."""
+NAME = "v1_chunked_sdpa"
+EXACT = True
+DESCRIPTION = "..."
+
+def apply():
+   ...
+
+```
+
+Implement apply:
+
+import mlx_lm.models.muse_glimmer as mg
+import mlx_lm.models.base as base
+...
+
+Patch.
+
+We must ensure imports allowed: mlx.core, mlx.nn, mlx.utils, mlx_lm.models.muse_glimmer, mlx_lm.models.base, math, functools, typing, dataclasses. So we can import those.
+
+We need original scaled_dot_product_attention function.
+
+Let's implement.
+
+Potential risk: The Attention class is instantiated before apply? apply() is called BEFORE weights load. So patching class is fine.
+
+Implement new __call__.
+
+Let's write code.
+
+Note: need to import mx = mlx.core.
+
+Implementation:
+
+def apply():
+    import mlx.core as mx
+    from mlx_lm.models import muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+
+    orig_call = mg.Attention.__call__
+
+    def new_call(self, x, mask=None, cache=None):
+        B, L, _ = x.shape
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # decide if we need chunking for fused kernel
+        if cache is not None and 2 <= L <= 8:
+            ratio = self.n_heads // self.n_kv_heads
+            max_q_len = 32 // ratio  # 2 for this model
+            if L > max_q_len:
+                # chunk queries to stay in fused vector kernel regime
+                outs = []
+                start = 0
+                # mask handling
+                # mask may be None, "causal", or mx.array
+                while start < L:
+                    chunk_len = max_q_len if start + max_q_len < L else L - start
+                    q_chunk = q[:, :, start:start+chunk_len, :]
+                    if isinstance(mask, mx.array):
+                        mask_chunk = mask[..., start:start+chunk_len, :]
+                    else:
+                        mask_chunk = mask
+                    out_chunk = scaled_dot_product_attention(
+                        q_chunk, k, v, cache=cache, scale=self.scale, mask=mask_chunk
+                    )
+                    outs.append(out_chunk)
+                    start += chunk_len
+                out = mx.concatenate(outs, axis=2)
+            else:
+                out = scaled_dot_product_attention(
+                    q, k, v, cache=cache, scale=self.scale, mask=mask
+                )
+        else:
+            out = scaled_dot_product_attention(
+                q, k, v, cache=cache, scale=self.scale, mask=mask
+            )
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = new_call
+
+post_load does nothing.
+
+Potential issue: chunk_len calculation: we used max_q_len if start+max_q_len < L else L-start. That gives last chunk maybe smaller. Fine.
+
+But we need to ensure start increments correctly. Use while.
+
+Edge: max_q_len could be 0? No.
+
+Now produce final output.
+
+Potential improvement: use 2 as max. Works.
+
+Now final answer.
+
+<|eom|><|start|>assistant to=user<|message|>The fused vector kernel in MLX is only used when `query_length * (n_heads / n_kv_heads) <= 32`.  
+For Muse Glimmer `n_heads/n_kv_heads = 32/2 = 16`, so the fused kernel is limited to `query_length <= 2`.  
+A 3-token decoding pass therefore falls back to the unfused SDPA. Splitting the query
+tensor into chunks of size ≤2 keeps the same per-query attention while staying in the
+fused regime. The split is applied only for `cache is not None` and `2 <= L <= 8` so
+one-token decoding and prompt processing stay bit-identical.
+
+```python
+"""v1_chunked_sdpa — chunk queries to stay in fused SDPA kernel for short decoding passes."""
+
+NAME = "v1_chunked_sdpa"
+EXACT = True
+DESCRIPTION = "Chunk 2-8 token decoding queries to max 2 tokens to use fused scaled_dot_product_attention kernel. One-token and prompt passes unchanged."
+
+def apply():
+    import mlx.core as mx
+    from mlx_lm.models import muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+
+    orig_call = mg.Attention.__call__
+
+    def new_call(self, x, mask=None, cache=None):
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # Only change 2-8 token decoding passes
+        if cache is not None and 2 <= L <= 8:
+            ratio = self.n_heads // self.n_kv_heads
+            max_q_len = 32 // ratio  # 2 for 32/2 heads
+            if L > max_q_len:
+                outs = []
+                start = 0
+                while start < L:
+                    chunk_len = max_q_len if start + max_q_len < L else L - start
+                    q_chunk = q[:, :, start:start + chunk_len, :]
+                    if isinstance(mask, mx.array):
+                        mask_chunk = mask[..., start:start + chunk_len, :]
+                    else:
+                        mask_chunk = mask
+                    out_chunk = scaled_dot_product_attention(
+                        q_chunk, k, v, cache=cache, scale=self.scale, mask=mask_chunk
+                    )
+                    outs.append(out_chunk)
+                    start += chunk_len
+                out = mx.concatenate(outs, axis=2)
+            else:
+                out = scaled_dot_product_attention(
+                    q, k, v, cache=cache, scale=self.scale, mask=mask
+                )
+        else:
+            out = scaled_dot_product_attention(
+                q, k, v, cache=cache, scale=self.scale, mask=mask
+            )
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = new_call
+
+
+def post_load(model):
+    pass
+```

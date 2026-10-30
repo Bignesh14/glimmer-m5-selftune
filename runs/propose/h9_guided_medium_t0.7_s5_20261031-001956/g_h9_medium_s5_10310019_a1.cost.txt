@@ -1,0 +1,31 @@
+variant g_h9_medium_s5_10310019_a1 (d02ece9cad15) | kernel: stock MLX | context: 13759 tokens (cache offset 13759)
+L= 1 (K= 0): median   40.25 ms per pass   = 1.00x a 1-token pass   (spread 40.12-41.28 ms)
+L= 2 (K= 1): median   43.82 ms per pass   = 1.09x a 1-token pass   (spread 43.70-43.94 ms)
+Traceback (most recent call last):
+  File "~/Projects/glimmer-m5-selftune/bench/verify_cost.py", line 129, in <module>
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/verify_cost.py", line 116, in main
+    mx.eval(model(x, cache=cache))
+            ~~~~~^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 236, in __call__
+    out = self.model(inputs, cache=cache)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 221, in __call__
+    h = layer(h, mask, c)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 178, in __call__
+    h = self.self_attn(h, mask, cache)
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_h9_medium_s5_10310019_a1.py", line 46, in new_call
+    out_chunk = scaled_dot_product_attention(
+        q_chunk, k, v, cache=cache, scale=self.scale, mask=mask
+    )
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/base.py", line 132, in scaled_dot_product_attention
+    return mx.fast.scaled_dot_product_attention(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        queries,
+        ^^^^^^^^
+    ...<4 lines>...
+        sinks=sinks,
+        ^^^^^^^^^^^^
+    )
+    ^
+ValueError: [scaled_dot_product_attention] n_heads must be a multiple of n_kv_heads, found n_heads 21 for n_kv_heads 2.

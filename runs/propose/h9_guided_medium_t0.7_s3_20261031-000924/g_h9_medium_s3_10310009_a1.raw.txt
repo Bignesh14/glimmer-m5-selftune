@@ -1,0 +1,357 @@
+ to=self<|message|>You are Muse Glimmer. Below is exact Python source code...
+
+We need make 3-token forward pass cheaper at long context by changing model code.
+
+We have MLX fact: mx.fast.scaled_dot_product_attention has fused "vector" kernel for short queries (query length <=8), but only if query_length x (number of query heads / number of key-value heads) <=32. Otherwise falls back to unfused whose cost grows with number of keys.
+
+We have 32 query heads and 2 kv heads. So ratio = 32/2=16. Condition: query_length *16 <=32 => query_length <=2. So for query_length=3, condition fails (3*16=48>32). So 3-token pass uses unfused which is expensive at long context.
+
+We need make 3-token forward pass cheaper. Change model code, but one-token decoding and prompt processing must stay bit-identical (EXACT=True). Only forward passes of 2 to 8 tokens may change. Outputs must be same attention computed differently (tiny rounding allowed).
+
+We need to make 3-token pass use fused kernel. How? Need query_length * ratio <=32. We can't change ratio (heads). Could split query into smaller chunks? If we process 3 tokens as two passes? Or process 2 tokens then 1 token? But prompt-lookup decoding checks guesses in ONE forward pass of 3 tokens (last token +2 guesses). Could we modify Attention.__call__ to for multi-token queries where length >2, split into smaller pieces to trigger fused kernel? But must keep output same.
+
+Idea: For query length L between 2 and 8, if L*16 >32, we can split into chunks of size <=2 to use fused kernel, then concatenate results. That would be different computation? Attention is linear; splitting query into chunks and concatenating results yields same output as full query because attention is per query independent. Since SDPA is per query, splitting is mathematically equivalent. Cost: multiple forward passes each smaller, maybe cheaper? However each forward pass has overhead. But we can process 3 tokens as 2+1. That's two passes instead of one. Is that allowed? The forward pass of 3 tokens may change internally. The API is __call__ with x shape (B,L,...). If we split internally, output same.
+
+But rule: only forward passes of 2 to 8 tokens may change. So we can intercept in Attention.__call__ when L >2 and <=8? Actually 2-token pass is okay: 2*16=32 fits. So 2-token is fine. 3-token is problematic. Could split 3 into 2+1. That would be two SDPA calls: first with L=2, second with L=1. Both use fused kernel. Total cost? Two passes: each pass cost relative to 1-token pass. For long context, 2-token pass is 1.09x, 1-token is 1x. So 2+1 =2.09x vs original 3-token 1.44x. That's worse.
+
+Alternative: we can process query in a way that keeps query_length <=2 for fused condition. Could we transpose heads? The condition uses query_length x (num query heads / num kv heads). If we could process with fewer effective query heads per pass? Could we split heads into groups? Attention is parallel over heads. If we process heads in batches, query_length * (batch_heads/ kv_heads) <=32. Could split 32 query heads into two groups of 16 each. Then ratio per group =16/2=8? Wait heads per group =16. Then query_length * (16/2)= query_length*8 <=32 => query_length <=4. So 3 fits. So we can split query heads into chunks of 16 heads at a time, compute attention partially, then combine. That keeps query length 3, but reduces effective query heads per call.
+
+Since attention is independent across heads, we can split heads. That would increase number of SDPA calls (2 calls per layer). Cost maybe 2 * cost of 3-token with half heads. Is that cheaper? Possibly.
+
+Better: use head grouping to ensure query_length * (heads_per_group / kv_heads) <=32. With 32 query heads, 2 kv heads. If we split into 2 groups of 16 heads, each call has 16 heads. Then query_length=3 => 3*8=24 <=32, so fused kernel used. So each SDPA call uses fused kernel, which is cheaper at long context.
+
+We need to keep outputs same. Splitting heads and concatenating is equivalent.
+
+Implementation: modify Attention.__call__ to, when L in 2..8 and L*16 >32 (i.e., L>=3), split q/k/v across heads into chunks. However k/v are shared across query heads via GQA? Wait k/v have only 2 heads, but queries have 32. In GQA, each kv head is repeated for multiple query heads. Actually k and v have shape (B, L, n_kv_heads, head_dim). q has (B, L, n_heads, head_dim). After transpose to (B, n_heads, L, head_dim). k/v transposed to (B, n_kv_heads, L, head_dim). In SDPA, MLX handles GQA internally by repeating? The scaled_dot_product_attention expects queries with n_heads, keys with n_kv_heads. It handles GQA.
+
+If we split query heads, we must also ensure keys/values are compatible. We can slice q along head dimension, and run SDPA with same k,v (shared). That's fine.
+
+Similarly, we need to handle RoPE, cache update, etc. Splitting after q/k/v projection and RoPE, before SDPA.
+
+Simpler: In Attention.__call__, after q/k/v prepared and transposed, if L between 3 and 8 inclusive? Actually up to 8 for fused. But condition query_length <=8 and query_length *16 <=32. So for L=3..8, fails. For L=3,4. L=5 =>5*16=80>32. So still fails. Could we split heads further to bring product <=32? Max heads per call = floor(32 / (L *? Wait ratio = heads_per_group / kv_heads). Actually condition: query_length * (num_query_heads_per_call / num_kv_heads) <=32. So heads_per_call <= 32 * kv_heads / query_length = 64 / L. For L=3, heads_per_call <=21. So we could use 16 heads. For L=4, heads_per_call <=16. For L=5, heads_per_call <=12. So need dynamic splitting.
+
+Simpler approach: always split query heads into chunks of size = max heads such that query_length * (chunk_size / 2) <=32 => chunk_size <=64 / query_length. Choose chunk size = min(n_heads, max allowed). Use ceiling division to split.
+
+We can implement a helper that loops over head chunks, runs SDPA per chunk, concatenates.
+
+Will this keep output identical? Yes, because attention per head independent.
+
+Memory under 25GB fine.
+
+Implementation details: In Attention.__call__, after q/k/v transposed, we have q shape (B, n_heads, L, head_dim). We can split along axis 1.
+
+We need to ensure mask handling works. Mask is same for all heads.
+
+We also need to keep one-token decoding identical. When L=1, we should not split (or splitting still identical). But rule says only 2-8 tokens may change, one-token must stay bit-identical. Splitting for L=1 would still be identical but maybe changes rounding? Might be okay but safer to only apply when L>=3 and L<=8? Actually 2-token passes fine. Condition for fused: L=2 => 2*16=32 fits. So we can keep unchanged for L<=2. For L>=3 and <=8, apply splitting.
+
+Also need to handle mask = None or "causal" or array. SDPA handles mask.
+
+Implementation steps:
+
+Patch Attention class in mlx_lm.models.muse_glimmer.
+
+We can monkey-patch Attention.__call__ via apply().
+
+Simpler: define a new Attention class that wraps original? Could replace class via import.
+
+Easiest: in apply(), import muse_glimmer, then replace Attention.__call__ with custom function.
+
+We need to preserve original behavior for L=1, and for L>8? Prompt-lookup decoding uses up to? It says 2 to 8 tokens may change. So we can limit to L in [2,8]? Actually 2-token is fine. But we can still apply splitting for L>=3.
+
+We need to ensure EXACT=True? The variant file template has EXACT=True. But rule says one-token decoding must stay BIT-IDENTICAL, only 2-8 may change. The EXACT flag maybe indicates bit-identical for all? The template says EXACT = True must match golden reference bit for bit. Hmm conflicting. Possibly EXACT flag is for model? In variant file, EXACT indicates whether forward passes must be bit-identical? The rule says one-token decoding must stay BIT-IDENTICAL (set EXACT=True). The variant file template sets EXACT=True. Hmm.
+
+Maybe EXACT flag is about overall bit-identical? The rule says only forward passes of 2 to 8 tokens may change. In those passes outputs must be same attention computed differently (tiny rounding allowed). So we can set EXACT=False? The template has EXACT=True. Hmm.
+
+The variant file template shows EXACT = True # must match golden reference bit for bit (it IS the reference). Possibly EXACT is a flag used by test harness to know if variant must be bit-identical. Since we are changing 2-8 token passes, we might need EXACT=False? But rule says one-token decoding must stay bit-identical, but 2-8 may change. The EXACT flag maybe means entire model must be bit-identical? Let's read rule 1: One-token decoding and prompt processing must stay BIT-IDENTICAL to the original (set EXACT = True): only forward passes of 2 to 8 tokens may change. So EXACT=True is required? Maybe EXACT flag controls something else.
+
+Maybe the harness checks EXACT flag to decide if it expects bit-identical for all. Hmm.
+
+Probably we keep EXACT=True because we only change internal implementation but output remains same (within rounding). The EXACT flag maybe just indicates we want bit-identical for 1-token. We'll keep EXACT=True.
+
+Implementation plan:
+
+In apply():
+from mlx_lm.models import muse_glimmer
+original_attention_call = muse_glimmer.Attention.__call__
+
+Define new __call__ that:
+- does original preprocessing up to q/k/v transpose and RoPE
+- if cache is not None, k,v updated
+- Determine L = q.shape[2] (after transpose? Actually q shape (B, n_heads, L, head_dim)). L = q.shape[2]? Wait after transpose: q shape (B, n_heads, L, head_dim). So L = q.shape[2].
+If L >=3 and L <=8:
+   chunk_size = max(1, 64 // L)  # because heads_per_call <= 64/L
+   chunk_size = min(chunk_size, n_heads)
+   If chunk_size < n_heads:
+       iterate over head slices, compute SDPA per chunk, concatenate.
+   else: proceed normal.
+
+But need to ensure chunk_size divides? Not necessary, last chunk smaller.
+
+Implementation details:
+
+def new_call(self, x, mask=None, cache=None):
+   B,L,_ = x.shape
+   ... same as original up to q/k/v...
+   q = ...
+   k = ...
+   v = ...
+   ... rms_norm etc...
+   q = q.transpose...
+   k = k.transpose...
+   v = v.transpose...
+   if use_rope...
+   if cache is not None: k,v = cache.update_and_fetch(k,v)
+   # decide split
+   if L >=3 and L <=8:
+      n_heads = self.n_heads
+      max_heads_per_call = 64 // L  # because  L * (heads/2) <=32 => heads <=64/L
+      if max_heads_per_call < n_heads:
+          chunk = max_heads_per_call
+          # ensure at least 1
+          outs = []
+          for start in range(0, n_heads, chunk):
+              end = min(start+chunk, n_heads)
+              q_chunk = q[:, start:end, :, :]
+              # run SDPA
+              out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+              outs.append(out_chunk)
+          out = mx.concatenate(outs, axis=1)
+      else:
+          out = scaled_dot_product_attention(...)
+   else:
+      out = scaled_dot_product_attention(...)
+
+   out = out.transpose(0,2,1,3).reshape...
+   ...
+
+Potential issue: cache is used in update_and_fetch, which returns updated k,v for whole sequence. If we split heads, k,v are same, fine.
+
+But note that scaled_dot_product_attention expects queries with shape (B, n_heads, L, head_dim). If we pass chunk, n_heads smaller, fine.
+
+Also need to handle sinks? Not needed.
+
+Potential rounding differences: concatenating results should be identical to original (up to order). Might be identical.
+
+Cost: For L=3, chunk=21? 64//3=21. So chunk=21 <32, so we split into 21+11 =2 calls. Each call uses fused kernel? Check condition: query_length * (heads_per_call / kv_heads) =3*(21/2)=31.5 <=32, so fused. Good.
+
+For L=4, chunk=16 => 4*8=32 fits. So one call with 16 heads, second call with 16 heads.
+
+For L=5, chunk=12 =>5*6=30 fits. So 3 calls.
+
+Is this cheaper than original unfused? Likely yes.
+
+Alternative simpler: always split into 16 heads chunks (since 32 heads). That ensures query_length <=4 uses fused. For L=5, 3*8=24? Wait 16 heads => 5*8=40>32. So would still fallback. So need dynamic.
+
+We'll implement dynamic chunk.
+
+Edge case: mask is "causal" string. Works.
+
+Implementation code.
+
+We need complete variant file.
+
+Let's craft file:
+
+NAME = "v..."
+EXACT = True
+DESCRIPTION = ...
+
+def apply():
+   import mlx_lm.models.muse_glimmer as mg
+   from mlx_lm.models.base import scaled_dot_product_attention
+   import mlx.core as mx
+
+   original_call = mg.Attention.__call__
+
+   def new_call(self, x, mask=None, cache=None):
+       B, L, _ = x.shape
+       ...
+   mg.Attention.__call__ = new_call
+
+But need to preserve self attributes.
+
+Better to create wrapper class? Simpler to monkey-patch.
+
+We must ensure imports allowed. We can import mlx.core, mlx.nn, etc.
+
+Let's craft final code.
+
+Potential pitfalls: self.q_proj etc. Need to replicate code exactly to avoid differences for L=1,2.
+
+We can copy original __call__ code and insert split logic.
+
+Let's extract original code lines.
+
+From source:
+
+def __call__(self, x: mx.array, mask=None, cache=None) -> mx.array:
+    B, L, _ = x.shape
+
+    q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+    k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+    v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+    # Scaleless QK-norm over head_dim; Q additionally scaled.
+    q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+    k = mx.fast.rms_norm(k, None, self.eps)
+
+    q = q.transpose(0, 2, 1, 3)
+    k = k.transpose(0, 2, 1, 3)
+    v = v.transpose(0, 2, 1, 3)
+
+    if self.use_rope:
+        offset = cache.offset if cache is not None else 0
+        q = self.rope(q, offset=offset)
+        k = self.rope(k, offset=offset)
+
+    if cache is not None:
+        k, v = cache.update_and_fetch(k, v)
+
+    out = scaled_dot_product_attention(
+        q, k, v, cache=cache, scale=self.scale, mask=mask
+    )
+    out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+
+    # Glimmer's output gate.
+    out = out * mx.sigmoid(self.gate_proj(x))
+    return self.o_proj(out)
+
+We'll replicate and insert split before SDPA.
+
+Implementation details for split:
+
+if cache is not None:
+   k, v = cache.update_and_fetch(k, v)
+
+# Determine if we need head splitting
+n_heads = self.n_heads
+n_kv_heads = self.n_kv_heads
+if 3 <= L <= 8:
+   max_heads_per_call = 64 // L  # because L * (heads/2) <=32 => heads <=64/L
+   # ensure at least 1
+   if max_heads_per_call < n_heads:
+       chunk = max_heads_per_call
+       # ensure chunk at least 1
+       outs = []
+       for start in range(0, n_heads, chunk):
+           end = start + chunk
+           if end > n_heads: end = n_heads
+           q_chunk = q[:, start:end, :, :]
+           out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+           outs.append(out_chunk)
+       out = mx.concatenate(outs, axis=1)
+   else:
+       out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+else:
+   out = scaled_dot_product_attention(...)
+
+Note: cache is passed to SDPA; but cache is already used for update. Passing same cache object is fine.
+
+Potential issue: scaled_dot_product_attention may use cache for quantization? Cache has bits attribute. In our case cache is KVCache object, not quantized. So fine.
+
+Edge: when we split, we call SDPA multiple times with same k,v. That's okay.
+
+Make sure to keep same order.
+
+Also need to handle case where L >8? Could still split but rule allows only up to 8. But we could still apply for >8? Might be okay but not needed. We'll limit to <=8.
+
+Also for L=2, max_heads_per_call = 32. So chunk >= n_heads, so no split.
+
+Implement.
+
+Potential micro-optimization: Use functools.wraps.
+
+Return.
+
+Let's produce final variant file.
+
+NAME = "head_split_fused_sdpa"
+
+EXACT = True
+
+DESCRIPTION = "Split query heads to fit fused SDPA kernel for 3-8 token passes..."
+
+Implement apply.
+
+We'll need to import mlx_lm.models.muse_glimmer as mg.
+
+Make sure to define new_call with closure.
+
+Potential issue: self.scale is self.head_dim**-0.5
+
+Okay.
+
+Let's produce final answer.<|eom|><|start|>assistant to=user<|message|>```python
+"""head_split_fused_sdpa — split query heads to stay inside the fused SDPA kernel"""
+
+NAME = "head_split_fused_sdpa"
+EXACT = True
+DESCRIPTION = "Split query heads for 3-8 token passes so query_length * heads/2 <=32, keeping fused SDPA. One-token and prompt processing unchanged."
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    original_call = mg.Attention.__call__
+
+    def new_call(self, x: mx.array, mask=None, cache=None) -> mx.array:
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # Use head splitting only for multi-token passes 3..8 to hit the fused kernel
+        # Condition for fused kernel: query_length * (heads_per_call / kv_heads) <= 32
+        # With kv_heads=2 -> heads_per_call <= 64 / L
+        if 3 <= L <= 8:
+            n_heads = self.n_heads
+            max_heads_per_call = 64 // L
+            if max_heads_per_call < n_heads and max_heads_per_call > 0:
+                chunk = max_heads_per_call
+                outs = []
+                for start in range(0, n_heads, chunk):
+                    end = start + chunk
+                    if end > n_heads:
+                        end = n_heads
+                    q_chunk = q[:, start:end, :, :]
+                    out_chunk = scaled_dot_product_attention(
+                        q_chunk, k, v, cache=cache, scale=self.scale, mask=mask
+                    )
+                    outs.append(out_chunk)
+                out = mx.concatenate(outs, axis=1)
+            else:
+                out = scaled_dot_product_attention(
+                    q, k, v, cache=cache, scale=self.scale, mask=mask
+                )
+        else:
+            out = scaled_dot_product_attention(
+                q, k, v, cache=cache, scale=self.scale, mask=mask
+            )
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = new_call
+
+
+def post_load(model):
+    pass
+```
