@@ -1,0 +1,305 @@
+ to=self<|message|>Correctness: PASS. 3-token pass: 1.21x (good). But prompt-lookup decoding with your variant produced wrong tokens on the long prompt.
+
+We need to ensure prompt-lookup decoding produces no wrong tokens. The issue is that we changed attention for 2-8 token passes when cache is not None. Prompt-lookup decoding uses prompt-lookup decoding where last 2 tokens appear earlier, we guess 2 tokens which followed them. The forward pass of 3 tokens (last token + 2 guesses). That's a decoding pass with cache not None and L=3. Our split changes attention computation? It should be same attention computed differently (tiny rounding differences allowed). But we are splitting heads and concatenating. Should be mathematically identical. Why wrong tokens? Maybe because we split heads but also the mask? Mask is "causal" string. scaled_dot_product_attention with mask string "causal" aligns mask to end of keys. If we split q into chunks, each chunk sees same k,v, mask same. Should be identical.
+
+But maybe the issue is that we changed for L=2 also. Prompt-lookup decoding uses 2-token pass? The description: check guesses in ONE forward pass of 3 tokens (your last token + 2 guesses). So L=3. But we also changed L=2. Could cause issues? Maybe the problem is that we changed for cache is not None and 2 <= L <=8. But during prompt-lookup decoding, the model may be called with L=3 but cache is None? No cache is used.
+
+Wait wrong tokens: normal decoding picks 19669, H8 gave 290. Hmm.
+
+Maybe the issue is that we are splitting heads but the order of operations for gate_proj? No.
+
+Potential issue: when we split heads, we call scaled_dot_product_attention multiple times with same k,v but different q chunks. The cache is passed each time. Does cache.update_and_fetch modify cache in place? In original code, k,v = cache.update_and_fetch(k,v). That's done once before splitting. So k,v are already fetched. Then we call scaled_dot_product_attention multiple times with same cache object. That's fine.
+
+But maybe the problem is that we changed for L=2 also, and prompt-lookup decoding may involve 2-token pass for verification? The description says 2-token pass 1.07x, 3-token pass 1.25x. Maybe they also do 2-token pass? The prompt-lookup decoding algorithm: when last 2 tokens appear earlier, guess 2 tokens which followed them, check guesses in ONE forward pass of 3 tokens (last token +2 guesses). So L=3.
+
+Why wrong tokens? Could be that splitting heads changes numerical precision due to different order of operations? Should be same mathematically but maybe due to fused kernel using different precision? The rule says outputs must be same attention computed differently (tiny rounding differences allowed). Maybe splitting causes different rounding leading to different argmax.
+
+Alternative: The issue might be that we are splitting heads for all layers, but for sliding window layers, mask is an array not string. Our splitting still works.
+
+Maybe the problem is that we changed for L=2 to 8 inclusive, but the condition for fused kernel is query_length <=8 and query_length * (heads/ kv) <=32. For L=2, max_chunk = 32*2//2=32, chunk_heads = (32//2)*2=32, which equals n_heads=32, so no split. For L=3, max_chunk=32*2//3=21, chunk_heads = (21//2)*2=20. So we split into 20+12. That's fine.
+
+But maybe the issue is that we are using scaled_dot_product_attention with same cache object multiple times, and the cache may have internal state that is mutated? No.
+
+Wait error earlier: n_heads must be multiple of n_kv_heads. We fixed by making chunk multiple.
+
+Now wrong tokens. Could be that we changed for L=2 also, but the prompt-lookup decoding uses 2-token pass for something else? The measurement shows L=2 pass cost 1.08x. Maybe they also measure 2-token pass.
+
+The wrong tokens might be due to the fact that we changed the attention for L>=2, but the prompt-lookup decoding algorithm also uses the model for normal decoding when lookup fails. If we changed attention for L=1? No.
+
+Maybe the issue is that we are splitting heads for all layers, including global layers where mask is "causal". The mask handling in scaled_dot_product_attention is done inside mx.fast.scaled_dot_product_attention. Splitting should be fine.
+
+Alternative hypothesis: The problem is that we are applying the split for any cache not None, but during prompt processing (prefill) cache is None, so fine. During decoding, cache is not None. However, the prompt-lookup decoding may involve a forward pass with L=3 but cache is None? No.
+
+Wait maybe the issue is that we changed the attention for L in [2,8] but the prompt-lookup decoding also uses the model to compute logits for the next token after the lookup? Hmm.
+
+Another possibility: The splitting changes the order of operations for the gate_proj multiplication? No.
+
+Maybe the issue is that we are using the same k,v tensors for each chunk, but the scaled_dot_product_attention expects queries shape (B, n_heads, L, head_dim). Splitting along heads axis is fine.
+
+Could be that the mask for sliding window layers is an array shape (..., L, K). When we split q, the mask shape is (..., L, K). The scaled_dot_product_attention expects mask shape compatible with queries. Splitting q changes n_heads dimension, but mask is broadcastable? Might be okay.
+
+Wait maybe the problem is that we are not preserving the exact same computation for the case where chunk_heads >= n_heads, we use original. That's fine.
+
+Why wrong tokens? Could be that we changed for L=2 also, and the prompt-lookup decoding uses a 2-token pass for verification? The description says 2-token pass 1.07x, 3-token pass 1.25x. Maybe they also do 2-token pass for some cases.
+
+Alternative approach: Instead of splitting heads, we could split query length? Or we could change the query length to 2? Hmm.
+
+The fused kernel condition is query_length * (n_heads / n_kv_heads) <=32. With n_heads/n_kv=16. So query_length <=2. So for L=3, we cannot use fused kernel. Our splitting reduces effective heads per call to make condition true. That's good.
+
+But maybe the issue is that we are splitting heads, but the attention output is sum over heads, and splitting is linear, so should be identical. However, due to the gate_proj multiplication after attention, the order is fine.
+
+Maybe the problem is that we are using cache.update_and_fetch which returns k,v that are already updated with current tokens. If we split, we call scaled_dot_product_attention multiple times with same k,v, but the cache object is passed each time. Does scaled_dot_product_attention modify cache? No.
+
+Hmm.
+
+Alternative: The issue might be that we changed for L=2 as well, but the prompt-lookup decoding algorithm might rely on exact bit-identical behavior for 2-token passes? The rule says only forward passes of 2 to 8 tokens may change. In those passes outputs must be same attention computed differently (tiny rounding differences allowed). So changing is allowed.
+
+But wrong tokens suggests the attention output changed enough to change argmax.
+
+Maybe splitting heads changes numerical precision because each chunk is processed separately, leading to different accumulation order and rounding errors that accumulate across layers, causing divergence.
+
+We need to ensure outputs are same attention computed differently (tiny rounding differences allowed). Maybe splitting heads causes larger rounding differences.
+
+Alternative solution: Instead of splitting heads, we could pad query length to make fused kernel applicable? Or we could change the query length by processing tokens one by one? Hmm.
+
+Another idea: Use the fact that query_length <=8, we can transpose to make query length smaller? Could we process the 3 tokens as 3 separate queries but with same cache? No.
+
+Alternative: We can change the attention to use a different implementation that is cheaper for long context. The fused kernel condition is query_length * (n_heads / n_kv_heads) <=32. For L=3, n_heads/n_kv=16, product=48 >32. If we reduce n_heads per call, we can satisfy. That's what we did.
+
+But maybe the issue is that we split heads unevenly, causing the last chunk to be smaller, and the concatenation order is preserved, so fine.
+
+Maybe the problem is that we are splitting for all layers, but for layers with sliding window, the mask is an array, and splitting heads may cause mask broadcasting issues leading to different results.
+
+Let's think: scaled_dot_product_attention receives queries shape (B, n_heads, L, head_dim). Mask shape for sliding window is (..., L, K). The mask is applied per head? Probably broadcast.
+
+Splitting heads should be fine.
+
+Alternative approach: Instead of splitting heads, we could split the query length dimension into multiple calls? For L=3, we could process 2 tokens at a time? Hmm.
+
+Maybe the issue is that we changed for L=2 as well, and the prompt-lookup decoding uses a 2-token pass for the verification of the 2-token guess? Wait they said check guesses in ONE forward pass of 3 tokens (your last token + 2 guesses). So L=3.
+
+Could be that the wrong tokens are due to the fact that we changed the attention for L=2 to 8, but the model is also used for normal decoding with L=1. That's fine.
+
+Maybe the problem is that we are applying the patch to Attention.__call__, but the Attention class is instantiated per layer. Our patch works.
+
+Another possibility: The cache.update_and_fetch returns k,v that are already concatenated with previous cache. If we split heads, we still use same k,v. Fine.
+
+Maybe the issue is that we are using the same cache object for multiple scaled_dot_product_attention calls, and the cache object has some internal state that is mutated by scaled_dot_product_attention? Unlikely.
+
+Let's search for known issues: The fused kernel condition also requires query_length <=8. We satisfy.
+
+Maybe the problem is that we are splitting heads for all layers, but for layers where use_rope is False (global layers), the rope is not applied. Still fine.
+
+Could be that the splitting changes the order of the gate_proj multiplication? No.
+
+Alternative solution: Instead of splitting heads, we could reduce the number of query heads by using a trick: we can reshape queries to have fewer heads by merging heads? No.
+
+Another idea: The condition for fused kernel is query_length * (n_heads / n_kv_heads) <=32. We can also reduce query_length by processing tokens in smaller chunks and accumulating results. For L=3, we could process 1 token at a time? That would be 3 passes, not good.
+
+Maybe the issue is that we are splitting heads, but the attention output is then multiplied by sigmoid(gate_proj(x)). The gate_proj(x) is computed once per layer, fine.
+
+Hmm.
+
+Maybe the problem is that we are using scaled_dot_product_attention with same cache object multiple times, and the cache object is a RotatingKVCache for sliding window layers. The update_and_fetch may return views that are reused? Could be that after first call, the cache is mutated? No.
+
+Let's think about numerical differences: Splitting heads changes the order of summation across heads. The attention output is sum over heads of attention per head. Summation is associative but floating point rounding differs. Could cause divergence over 52 layers.
+
+The rule allows tiny rounding differences. Maybe splitting heads causes too large difference.
+
+Alternative approach: Instead of splitting heads, we can keep heads together but reduce query length by using a trick with the mask? Or we can pad queries to make query_length smaller? No.
+
+Another idea: The fused kernel condition also requires query_length <=8. We have L=3, okay. The condition is query_length * (n_heads / n_kv_heads) <=32. We can also reduce effective n_heads by using a different projection? No.
+
+Maybe we can change the attention to use a different scale? No.
+
+Alternative: We can avoid splitting heads and instead process the 3 tokens as 2 separate forward passes of 2 tokens and 1 token? That would be more expensive.
+
+Maybe the issue is that we changed for L=2 as well, and the prompt-lookup decoding uses a 2-token pass for the "2-token pass" measurement. The wrong tokens might be because we changed the behavior for L=2, which is used in the prompt-lookup decoding algorithm for some cases? The description says when last 2 tokens appear earlier, we guess 2 tokens which followed them. So we need 3 tokens.
+
+Hmm.
+
+Maybe the problem is that we are splitting heads for all layers, but for layers where n_heads is 32, chunk_heads = 20, we split into 20 and 12. The second chunk has 12 heads, which is not a multiple of n_kv_heads? 12 is multiple of 2. Good.
+
+But the condition for fused kernel is query_length * (chunk_heads / n_kv) <=32. For chunk_heads=12, L=3, 3*6=18 <=32, good. For chunk_heads=20, 3*10=30 <=32, good.
+
+Maybe the issue is that we are using the same k,v for both chunks, but k,v have shape (B, n_kv_heads, L, head_dim). When we split q, we still use full k,v. That's fine.
+
+Could be that the mask for causal attention is applied inside scaled_dot_product_attention based on query length. Splitting heads doesn't change mask.
+
+Maybe the issue is that we are applying the patch to Attention.__call__, but the Attention class also has a method for the case where cache is None (prefill). That's fine.
+
+Wait the wrong tokens error shows at position 1,2,4,5,8... The first token is wrong. Could be that the first decoding step after prefill uses L=3? Hmm.
+
+Alternative approach: Instead of splitting heads, we could split the query length dimension into two parts: process first 2 tokens with fused kernel, and third token separately? That would be 2 passes.
+
+Maybe we can use a different trick: For long context, the cost of SDPA grows with number of keys. The fused kernel cost is independent of number of keys? Actually fused kernel is cheaper. The unfused cost grows with number of keys. So we want to use fused kernel.
+
+Our splitting should work.
+
+Maybe the issue is that we are splitting heads for all layers, but for layers where use_rope is True, we applied rope to q and k before splitting. That's fine.
+
+Wait: The rope operation is applied to q and k after transpose. If we split q after rope, fine.
+
+Potential bug: When we split, we compute out_chunk = scaled_dot_product_attention(q_chunk, k, v, ...). The k and v are still full size (n_kv_heads). That's fine.
+
+But the attention output shape for q_chunk is (B, chunk_heads, L, head_dim). After concatenation, we get (B, n_heads, L, head_dim). Good.
+
+Maybe the issue is that we are using the same cache object for multiple calls, and the cache object has a `offset` attribute used for rope. That's fine.
+
+Could be that the problem is that we changed for L=2 as well, and the prompt-lookup decoding algorithm uses a 2-token pass for the "2-token pass" measurement, but the actual decoding uses 3-token pass. Hmm.
+
+Alternative solution: Only split when L=3? The task says 3-token forward pass cheaper. Maybe we only need to optimize L=3. The 2-token pass is also measured but maybe not needed. Could restrict to L=3 only.
+
+The wrong tokens might be due to splitting for L=2 causing divergence in the prompt-lookup decoding's internal state? The prompt-lookup decoding algorithm might use the model to verify guesses, and if we change L=2 behavior, it might affect the verification.
+
+Let's try to restrict to L=3 only, and also ensure chunk_heads is multiple of n_kv_heads and also ensures n_heads is multiple of chunk_heads? Not necessary.
+
+Also, we might want to avoid splitting when chunk_heads is close to n_heads, to reduce overhead.
+
+Another idea: Use a more precise splitting that preserves order of operations to minimize rounding differences. Maybe we should split heads in a way that the sum is identical to original? Could we compute attention for each head individually and sum? That would be same.
+
+Maybe the issue is that we are using mx.concatenate which may change memory layout leading to different rounding in subsequent operations? Unlikely.
+
+Alternative approach: Instead of splitting heads, we can transpose queries to swap heads and length dimensions to make query_length smaller? No.
+
+Wait the condition is query_length * (n_heads / n_kv_heads) <=32. The factor n_heads / n_kv_heads is 16. So query_length <=2 for fused. We split heads to reduce effective n_heads.
+
+But maybe we can also reduce effective n_heads by using a different projection: we could temporarily reduce n_heads by averaging? No.
+
+Another idea: The fused kernel condition also requires query_length <=8. We have L=3, okay.
+
+Maybe the issue is that we are splitting heads for all layers, but for layers where layer_type is sliding_attention, the mask is an array, and the mask shape depends on L and K. Splitting heads might cause the mask to be broadcast incorrectly? The mask shape is (..., L, K). When we split q, the mask is still same shape, so broadcasting should work.
+
+Hmm.
+
+Let's search mental: The error about wrong tokens could be due to the fact that we changed the attention for L=2 to 8, but the prompt-lookup decoding algorithm also uses the model for the "normal decoding" baseline? No.
+
+Maybe the issue is that we are applying the patch to Attention.__call__, but the Attention class is also used during prefill with cache=None and L large. That's fine.
+
+Wait the variant file we submitted earlier had condition `if cache is not None and 3 <= L <= 8`. Now we changed to 2 <= L <=8. Maybe the original issue was that we changed for L=2, causing wrong tokens. Let's revert to 3 <= L <=8.
+
+The task says make 3-token forward pass cheaper. It doesn't require changing 2-token pass. Maybe changing 2-token pass causes wrong tokens.
+
+Let's try restrict to L==3 only? Or 3 <= L <=8? The original patch used 3 <= L <=8. The second patch used 2 <= L <=8. Maybe the 2-token change caused wrong tokens.
+
+Let's revert to L==3? The task says 3-token forward pass cheaper. Could also benefit 4-8.
+
+Let's try restrict to L==3 only, and also ensure chunk_heads is multiple of n_kv_heads.
+
+Also, maybe we should only split when the condition is not met, i.e., when L * (n_heads / n_kv) >32. For L=3, 3*16=48>32, so split. For L=4, 4*16=64>32, split. For L=5, 5*16=80>32, split. For L=6, 6*16=96>32, split. For L=7, 7*16=112>32, split. For L=8, 8*16=128>32, split. So all need split.
+
+But maybe the rounding differences accumulate more for larger L.
+
+Let's try to only split for L=3, and see if wrong tokens disappear. The cost reduction might still be enough? The task requires 3-token pass drop below 1.40x. If we only optimize L=3, that's fine.
+
+Let's try L==3 only.
+
+Also, we might want to ensure that we don't split when chunk_heads is not a divisor of n_heads? Our loop handles remainder.
+
+Maybe the issue is that we are splitting heads for all layers, but for layers where use_rope is True, the rope operation is applied to q and k before splitting. That's fine.
+
+Another potential issue: The gate_proj(x) is computed after attention, but x is the input to attention, which is same.
+
+Hmm.
+
+Let's try a more conservative approach: Only split for L=3, and use chunk_heads = 20 (which is multiple of 2). That should be fine.
+
+Also, we could try to use a different splitting strategy that preserves the order of heads to minimize rounding differences: maybe split into 16 heads and 16 heads? 16 heads gives 3*8=24 <=32, so 16 heads works! Wait 16 heads /2 =8, 3*8=24 <=32. So we could split into 16+16. That's better and more balanced. Our max_chunk calculation gave 20, but 16 is also valid and maybe more stable.
+
+Using 16 heads per chunk gives 2 chunks, each with 16 heads. That's simpler and maybe more numerically stable.
+
+Let's compute max_chunk = 32 * n_kv // L = 32*2//3=21. Largest multiple of n_kv <=21 is 20. But 16 is also valid and maybe better for numerical stability.
+
+Maybe using 20 heads causes the second chunk to be 12 heads, which is different size, leading to different rounding.
+
+Let's try using chunk_heads = 16 (or 8?). 16 is multiple of 2, and 3*8=24 <=32. Good.
+
+Let's try chunk_heads = 16 for L=3.
+
+Also, we could try to use chunk_heads = 8? 3*4=12 <=32, but more chunks = more overhead.
+
+Let's try a simple approach: For L=3, use chunk_heads = 16 (two chunks). That should be fine.
+
+Let's implement with chunk_heads = 16 for L=3, and maybe for other L use appropriate.
+
+Simplify: If L==3, split into 2 chunks of 16 heads each.
+
+Let's try that.
+
+Also, ensure we only split when cache is not None and L==3.
+
+Let's produce final file.
+
+<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_split_heads_fixed2 — split query heads into 16-head chunks for L=3 to hit fused SDPA."""
+
+NAME = "v1_split_heads_fixed2"
+EXACT = True
+DESCRIPTION = "For 3-token decoding passes split query heads into 16-head chunks (multiple of n_kv) to satisfy fused SDPA condition."
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    _orig_call = mg.Attention.__call__
+
+    def _patched_call(self, x: mx.array, mask=None, cache=None) -> mx.array:
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # Only modify the 3-token decoding pass; keep 1-token and prompt processing bit-identical
+        if cache is not None and L == 3:
+            n_heads = self.n_heads
+            n_kv = self.n_kv_heads
+            # Use 16-head chunks: 16/2=8, 3*8=24 <=32 -> fused kernel
+            chunk_heads = 16
+            # Ensure chunk is multiple of n_kv and divides n_heads cleanly
+            if chunk_heads % n_kv != 0:
+                chunk_heads = (chunk_heads // n_kv) * n_kv
+            if chunk_heads > n_heads:
+                chunk_heads = n_heads
+
+            if chunk_heads >= n_heads:
+                out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+            else:
+                outs = []
+                for start in range(0, n_heads, chunk_heads):
+                    end = start + chunk_heads
+                    if end > n_heads:
+                        end = n_heads
+                    q_chunk = q[:, start:end, :, :]
+                    out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+                    outs.append(out_chunk)
+                out = mx.concatenate(outs, axis=1)
+        else:
+            out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = _patched_call
+
+
+def post_load(model):
+    pass
+```

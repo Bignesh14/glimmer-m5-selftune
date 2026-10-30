@@ -1,0 +1,51 @@
+run h9_guided_medium_20261030-200218: arm=guided strength=medium attempts=4
+
+=== attempt 1: asking Glimmer (g_h9_medium_10302002_a1)
+PROPOSE {"prompt_tokens": 3885, "gen_tokens": 4302, "gen_seconds": 171.4, "hit_max_tokens": false, "peak_mem_gb": 16.61, "reasoning_tokens": 3490, "variant": "g_h9_medium_10302002_a1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_10302002_a1
+variant g_h9_medium_10302002_a1 (67cdcd47b127) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_10302002_a1
+cost run failed
+
+=== attempt 2: asking Glimmer (g_h9_medium_10302006_a2)
+PROPOSE {"prompt_tokens": 5280, "gen_tokens": 2469, "gen_seconds": 102.2, "hit_max_tokens": false, "peak_mem_gb": 16.6, "reasoning_tokens": 1726, "variant": "g_h9_medium_10302006_a2", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_10302006_a2
+variant g_h9_medium_10302006_a2 (ed221e52d7a2) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_10302006_a2
+L3=1.21; h8_check FAIL
+
+=== attempt 3: asking Glimmer (g_h9_medium_10302010_a3)
+PROPOSE {"prompt_tokens": 6431, "gen_tokens": 5497, "gen_seconds": 222.2, "hit_max_tokens": false, "peak_mem_gb": 16.63, "reasoning_tokens": 4744, "variant": "g_h9_medium_10302010_a3", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_10302010_a3
+variant g_h9_medium_10302010_a3 (a9c7f5f3dc83) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_10302010_a3
+L3=1.20; h8_check FAIL
+
+=== attempt 4: asking Glimmer (g_h9_medium_10302016_a4)
+PROPOSE {"prompt_tokens": 7598, "gen_tokens": 4038, "gen_seconds": 167.4, "hit_max_tokens": false, "peak_mem_gb": 16.63, "reasoning_tokens": 3180, "variant": "g_h9_medium_10302016_a4", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_10302016_a4
+variant g_h9_medium_10302016_a4 (b0620d224727) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_10302016_a4
+L3=1.21; h8_check FAIL
+
+No passing variant after 4 attempts. Everything is in /Users/bigneshdas/Projects/glimmer-m5-selftune/runs/propose/h9_guided_medium_20261030-200218

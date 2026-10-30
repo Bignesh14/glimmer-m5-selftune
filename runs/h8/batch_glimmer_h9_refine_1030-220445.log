@@ -1,0 +1,42 @@
+run h9_guided_medium_20261030-200218_refine_20261030-220445: arm=guided strength=medium attempts=4
+
+=== attempt 1: asking Glimmer (g_h9_medium_10302204_r1)
+PROPOSE {"prompt_tokens": 9113, "gen_tokens": 4719, "gen_seconds": 196.5, "hit_max_tokens": false, "peak_mem_gb": 16.66, "reasoning_tokens": 3920, "variant": "g_h9_medium_10302204_r1", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_10302204_r1
+variant g_h9_medium_10302204_r1 (aa7945ea55e9) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_10302204_r1
+L3=1.21; h8_check FAIL
+
+=== attempt 2: asking Glimmer (g_h9_medium_10302210_r2)
+PROPOSE {"prompt_tokens": 10319, "gen_tokens": 8001, "gen_seconds": 328.5, "hit_max_tokens": false, "peak_mem_gb": 16.68, "reasoning_tokens": 7226, "variant": "g_h9_medium_10302210_r2", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_10302210_r2
+variant g_h9_medium_10302210_r2 (c649a0433de8) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_10302210_r2
+L3=1.23; h8_check FAIL
+
+=== attempt 3: asking Glimmer (g_h9_medium_10302218_r3)
+PROPOSE {"prompt_tokens": 11502, "gen_tokens": 16000, "gen_seconds": 649.5, "hit_max_tokens": true, "peak_mem_gb": 16.69, "reasoning_tokens": 16000, "variant": "g_h9_medium_10302218_r3", "strength": "medium", "visible_answer": false, "code_found": false}
+
+=== attempt 4: asking Glimmer (g_h9_medium_10302229_r4)
+PROPOSE {"prompt_tokens": 11548, "gen_tokens": 3523, "gen_seconds": 152.8, "hit_max_tokens": false, "peak_mem_gb": 16.68, "reasoning_tokens": 2885, "variant": "g_h9_medium_10302229_r4", "strength": "medium", "visible_answer": true, "code_found": true}
+--- referee: correctness check of g_h9_medium_10302229_r4
+variant g_h9_medium_10302229_r4 (22bcaf94e114) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+--- referee: pass cost + H8 correctness of g_h9_medium_10302229_r4
+cost run failed
+
+No passing variant after 4 attempts. Everything is in runs/propose/h9_guided_medium_20261030-200218

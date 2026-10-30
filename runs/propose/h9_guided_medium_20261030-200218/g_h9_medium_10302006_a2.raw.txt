@@ -1,0 +1,201 @@
+ to=self<|message|>Your variant passed correctness check, but measuring pass cost failed:
+ValueError: [scaled_dot_product_attention] n_heads must be a multiple of n_kv_heads, found n_heads 21 for n_kv_heads 2.
+
+We need to split heads into chunks where each chunk size is multiple of n_kv_heads? Actually n_heads must be multiple of n_kv_heads. The error arises because we split into chunk_heads = min(n_heads, max_chunk). max_chunk = 32 * n_kv // L. For L=3, max_chunk = 32*2//3 = 21. So chunk_heads=21, which is not multiple of 2. Also n_heads must be multiple of n_kv_heads? The SDPA expects queries shape (B, n_heads, L, head_dim) and keys shape (B, n_kv_heads, K, head_dim). The function likely requires n_heads % n_kv_heads ==0. So we need chunk size multiple of n_kv_heads.
+
+Also we need to ensure we don't break correctness. The split must be exact.
+
+We need to adjust chunk size to be multiple of n_kv_heads and <= max_chunk.
+
+Also need to ensure we handle remainder.
+
+Also we need to ensure for L=2, we have max_chunk = 32*2//2=32, chunk_heads=32? Actually n_heads=32, so chunk_heads=32, no split. That's fine.
+
+For L=3, max_chunk=21. Need multiple of 2 <=21 => 20. So chunk size 20, then remaining 12.
+
+For L=4, max_chunk=16, multiple of 2 =>16, remaining 16.
+
+For L=5, max_chunk=12, multiple of 2 =>12, remaining 20.
+
+For L=6, max_chunk=10, multiple of 2 =>10, remaining 22.
+
+For L=7, max_chunk=9, multiple of 2 =>8, remaining 24.
+
+For L=8, max_chunk=8, multiple of 2 =>8, remaining 24.
+
+We need to ensure fused kernel condition: query_length * (chunk_heads / n_kv_heads) <=32. That's equivalent to chunk_heads <= 32 * n_kv_heads / L. So we need chunk_heads <= max_chunk.
+
+We can choose chunk_heads = largest multiple of n_kv_heads <= max_chunk.
+
+Also need to ensure we don't change 1-token passes. Also need to keep EXACT True.
+
+Also need to ensure we only change forward passes of 2 to 8 tokens. The condition cache is not None and 3 <= L <=8? The prompt says 2 to 8 tokens may change. The original description says 2 to 8 tokens may change. The previous code used 3 <= L <=8. Might be okay but maybe need 2-8 inclusive. The prompt-lookup decoding uses 3-token pass. But maybe 2-token also allowed. Safer to allow 2-8.
+
+Also need to ensure we don't change mask handling? Should be fine.
+
+Also need to ensure we don't break when cache is None? For prompt processing, cache is None. So fine.
+
+Potential issue: splitting heads changes order? Concatenation in same order preserves output.
+
+Implementation details: compute max_chunk = 32 * n_kv // L. Then find largest multiple of n_kv_heads <= max_chunk and also <= n_heads. If chunk_heads >= n_heads, just do original.
+
+If chunk_heads < n_heads, we need to iterate.
+
+But also need to ensure chunk_heads is at least n_kv_heads.
+
+Edge case: L=2 => max_chunk=32, multiple of 2 =>32, chunk_heads=32 >= n_heads => no split.
+
+L=3 => max_chunk=21 => largest multiple of 2 <=21 is 20.
+
+Implementation steps:
+
+def _patched_call:
+...
+if cache is not None and 2 <= L <= 8:
+   n_heads...
+   max_chunk = 32 * n_kv // L
+   # find largest multiple of n_kv <= max_chunk
+   chunk_heads = (max_chunk // n_kv) * n_kv
+   if chunk_heads < n_kv: chunk_heads = n_kv
+   if chunk_heads > n_heads: chunk_heads = n_heads
+   if chunk_heads >= n_heads:
+      out = ...
+   else:
+      ...
+
+But also need to ensure chunk_heads is multiple of n_kv_heads, which it is.
+
+Also need to ensure that for each chunk, the condition holds: L * (chunk_heads / n_kv) <=32. Since chunk_heads <= max_chunk, holds.
+
+Also need to ensure that the split does not change numerical results due to different order of operations? Should be identical mathematically because attention is linear across heads. Summing chunks is same as whole. However scaled_dot_product_attention may have different rounding due to different reduction order? Might be allowed tiny rounding differences. The rule says outputs must be same attention computed differently (tiny rounding differences allowed). So fine.
+
+Also need to ensure we don't change for sliding window layers? Mask may be array. Should still work.
+
+Potential issue: when we split q, we keep k,v same. That's fine.
+
+Also need to ensure we don't modify original Attention class for other layers? It's fine.
+
+Also need to ensure we import correctly.
+
+Also need to ensure we don't break when cache is quantized? The scaled_dot_product_attention handles quantized case. Our split will still call scaled_dot_product_attention with same cache object. If cache has bits attribute, scaled_dot_product_attention will go to quantized path. Splitting heads may still work? Quantized SDPA may also require n_heads multiple of n_kv_heads. Our chunk size is multiple, so okay.
+
+But note: cache.update_and_fetch returns k,v already updated. That's fine.
+
+Potential improvement: we could also avoid splitting when L=2 because condition already satisfied? For L=2, query_length * (32/2)=32 <=32, so fused kernel already used. So no need.
+
+Also need to ensure we don't change for L=1. Good.
+
+Also need to ensure we keep EXACT=True.
+
+Also need to ensure we don't change for prompt processing (cache is None). Good.
+
+Potential edge: when we split, we need to ensure we concatenate along axis 1 (heads). That's correct.
+
+Implementation details: use for start in range(0, n_heads, chunk_heads): end = min(start+chunk_heads, n_heads). q_chunk = q[:, start:end, :, :]. Works.
+
+Potential issue: if chunk_heads is not divisor of n_heads, last chunk smaller, still multiple? Might be not multiple of n_kv? If n_heads=32, chunk_heads=20, start 0 ->20, start20 ->40 -> end 32. So last chunk size 12, which is multiple of 2. Good.
+
+But chunk_heads for last iteration may be smaller than chunk_heads, but still multiple of n_kv? 12 is multiple. Good.
+
+But we used fixed chunk_heads for all iterations, last may be smaller. That's fine.
+
+Alternative: compute chunk_heads as largest multiple <= max_chunk, but also ensure chunk_heads <= n_heads.
+
+Edge case: max_chunk // n_kv * n_kv may be 0 for large L. For L=8, max_chunk=8, //2=4*2=8 good. For L=9, not in range.
+
+Now implement final file.
+
+Also ensure we don't import disallowed modules.
+
+We need to keep NAME, EXACT, DESCRIPTION.
+
+Let's produce final code.
+
+Potential improvement: also ensure we only split when cache is not None (decoding). Good.
+
+Also ensure we don't change for L=2? Could include. The rule allows 2-8. Might be fine.
+
+Let's produce final variant.
+
+Also ensure we use same variable names.
+
+Potential bug: original code uses self.n_heads, self.n_kv_heads. Good.
+
+One more nuance: the condition for fused kernel is query_length * (number of query heads / number of key-value heads) <=32. That's L * (n_heads_chunk / n_kv). Since n_heads_chunk is chunk_heads. Good.
+
+Now produce final file.
+
+Let's output complete file.<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_split_heads_fixed — split query heads into multiples of n_kv_heads for short decoding passes."""
+
+NAME = "v1_split_heads_fixed"
+EXACT = True
+DESCRIPTION = "Split query heads into n_kv multiples for 2-8 token decoding passes to satisfy fused SDPA condition."
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    _orig_call = mg.Attention.__call__
+
+    def _patched_call(self, x: mx.array, mask=None, cache=None) -> mx.array:
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # Only modify short decoding passes; keep 1-token and prompt processing bit-identical
+        if cache is not None and 2 <= L <= 8:
+            n_heads = self.n_heads
+            n_kv = self.n_kv_heads
+            # fused kernel condition: L * (chunk_heads / n_kv) <= 32
+            max_chunk = 32 * n_kv // L
+            # largest multiple of n_kv not exceeding max_chunk
+            chunk_heads = (max_chunk // n_kv) * n_kv
+            if chunk_heads < n_kv:
+                chunk_heads = n_kv
+            if chunk_heads > n_heads:
+                chunk_heads = n_heads
+
+            if chunk_heads >= n_heads:
+                out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+            else:
+                outs = []
+                for start in range(0, n_heads, chunk_heads):
+                    end = start + chunk_heads
+                    if end > n_heads:
+                        end = n_heads
+                    q_chunk = q[:, start:end, :, :]
+                    out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+                    outs.append(out_chunk)
+                out = mx.concatenate(outs, axis=1)
+        else:
+            out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = _patched_call
+
+
+def post_load(model):
+    pass
+```

@@ -1,0 +1,12 @@
+{
+ "prompt_tokens": 11548,
+ "gen_tokens": 3523,
+ "gen_seconds": 152.8,
+ "hit_max_tokens": false,
+ "peak_mem_gb": 16.68,
+ "reasoning_tokens": 2885,
+ "variant": "g_h9_medium_10302229_r4",
+ "strength": "medium",
+ "visible_answer": true,
+ "code_found": true
+}

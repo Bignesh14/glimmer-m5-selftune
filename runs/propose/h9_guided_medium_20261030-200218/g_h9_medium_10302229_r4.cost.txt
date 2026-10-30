@@ -1,0 +1,29 @@
+variant g_h9_medium_10302229_r4 (22bcaf94e114) | kernel: stock MLX | context: 13759 tokens (cache offset 13759)
+L= 1 (K= 0): median   40.23 ms per pass   = 1.00x a 1-token pass   (spread 40.15-40.33 ms)
+L= 2 (K= 1): median   43.77 ms per pass   = 1.09x a 1-token pass   (spread 43.70-43.87 ms)
+Traceback (most recent call last):
+  File "~/Projects/glimmer-m5-selftune/bench/verify_cost.py", line 129, in <module>
+    main()
+    ~~~~^^
+  File "~/Projects/glimmer-m5-selftune/bench/verify_cost.py", line 116, in main
+    mx.eval(model(x, cache=cache))
+            ~~~~~^^^^^^^^^^^^^^^^
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 236, in __call__
+    out = self.model(inputs, cache=cache)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 221, in __call__
+    h = layer(h, mask, c)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/muse_glimmer.py", line 178, in __call__
+    h = self.self_attn(h, mask, cache)
+  File "~/Projects/glimmer-m5-selftune/bench/variants/g_h9_medium_10302229_r4.py", line 42, in _patched_call
+    out0 = scaled_dot_product_attention(q0, k, v, cache=cache, scale=self.scale, mask=mask)
+  File "~/Projects/glimmer-m5-selftune/.venv/lib/python3.13/site-packages/mlx_lm/models/base.py", line 132, in scaled_dot_product_attention
+    return mx.fast.scaled_dot_product_attention(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        queries,
+        ^^^^^^^^
+    ...<4 lines>...
+        sinks=sinks,
+        ^^^^^^^^^^^^
+    )
+    ^
+ValueError: [broadcast_shapes] Shapes (3,2050) and (1,32,2,2050) cannot be broadcast.

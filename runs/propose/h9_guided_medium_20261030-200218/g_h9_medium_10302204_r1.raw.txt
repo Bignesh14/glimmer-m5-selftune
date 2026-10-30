@@ -1,0 +1,254 @@
+ to=self<|message|>You are Muse Glimmer... Need correct split.
+
+Problem: splitting query heads or sequence changes attention? Actually attention is linear in queries, splitting heads should be equivalent if we concatenate. But we also changed mask handling? In attempt 4, they split sequence and also sliced mask incorrectly? They used mask_chunk = mask[..., start:end, :] which changes mask for each chunk, but mask is causal? For cache, mask is "causal" string, not array. In code they check isinstance(mask, mx.array) then slice. But mask is string "causal". So mask_chunk = mask (string). That's fine.
+
+But splitting sequence: q_chunk = q[:, :, start:end, :]. Then scaled_dot_product_attention with same k,v. Since attention is per query, splitting sequence should be equivalent. However they also changed mask slicing for array masks but not for string. Hmm.
+
+Wait issue: when cache is not None, they do k, v = cache.update_and_fetch(k, v). That updates cache with current k,v and returns updated? The cache update is done once per layer. If we split queries, we still use same k,v (already updated). So fine.
+
+But why wrong tokens? Maybe because they split sequence and concatenate along axis 2, but original q shape after transpose is (B, n_heads, L, head_dim). Splitting along L and concatenating back should be identical. However they also changed mask handling for array masks: they slice mask but they don't adjust for the fact that mask is relative to original keys? Actually mask for sliding window layers is an array of shape (..., L, K). If we split L, slicing mask[..., start:end, :] is correct? The mask for each query position i should be based on its absolute position, not relative within chunk. Slicing preserves absolute positions because start:end corresponds to original positions. So okay.
+
+Maybe the problem is that they changed the order of operations for RoPE? No.
+
+Wait: The issue might be that splitting sequence changes the order of computation with respect to the cache update? No.
+
+Alternative insight: The fused kernel condition is query_length * (n_heads / n_kv_heads) <= 32. With n_heads=32, n_kv=2, ratio=16. So query_length <=2. So for L=3, we need to split into chunks of length 2 and 1. That's fine.
+
+But the problem of wrong tokens suggests non-determinism due to different reduction order? Should be mathematically identical. However MLX scaled_dot_product_attention with mask="causal" may align mask to end of keys. If we split queries, each chunk sees same keys (full cache). The causal mask for each chunk should be relative to its own query positions, not absolute. If we just slice queries, the causal mask applied to chunk will assume queries start at position 0, not at original offset. That changes attention!
+
+Indeed, mask="causal" means query i sees keys 0..K-L+i. If we split queries into chunks, the relative positions within chunk change. For chunk starting at start, the first query in chunk corresponds to original position start, which should see keys up to K-L+start. If we feed chunk alone with mask="causal", it will assume queries are at positions 0..chunk_len-1 relative to end, so it will see fewer keys.
+
+Thus we need to preserve absolute positions. Solution: don't split sequence with causal mask string; instead we need to keep full L but make query_length small by splitting heads? Wait heads split didn't work due to n_heads multiple.
+
+Alternative: we can split query into two parts along sequence but adjust mask to be absolute. For causal mask string, we cannot adjust easily. Could convert mask to explicit array for these passes, then slice correctly.
+
+Simpler: For L=3, we can process first 2 tokens with fused kernel, and last 1 token separately, but we need to ensure mask is correct. If we process chunk with offset, we can pass mask as array with correct positions.
+
+Simpler approach: For L in 2..8, we can process queries one by one? That would be 3 passes, not good.
+
+Better: Use the fact that we can split heads into chunks that satisfy condition without changing mask semantics. Earlier attempt split heads but got n_heads not multiple of n_kv. We need chunk_heads multiple of n_kv and also divide n_heads evenly? Actually splitting heads into chunks of size 16 works: 16 is multiple of 2, and 32/16=2 chunks. For L=3, chunk_heads=16 gives query_length * (16/2)=3*8=24 <=32, so fused. So we can split heads into 2 chunks of 16 each. That's valid and preserves mask.
+
+Earlier attempt 2/3 split heads into 16-head chunks for L==3 only. That should be correct mathematically. Why did it produce wrong tokens? Maybe because they only applied for L==3, but prompt-lookup decoding may use L=2,4,...? The prompt-lookup decoding uses 2-token pass and 3-token pass? The task says change 2 to 8 tokens. Maybe they need to handle L=2 as well? L=2 already fits fused? 2*16=32 fits. So fine.
+
+Wait attempt 2/3 used chunk_heads=16 for L==3 only. That should be correct. Why wrong tokens? Maybe because they changed only L==3, but the prompt-lookup decoding also uses 2-token pass for checking guesses? The prompt-lookup decoding uses 2 tokens guesses? Hmm.
+
+Maybe the issue is that splitting heads changes the order of concatenation? Should be same.
+
+Alternative hypothesis: The gate_proj(x) is computed once, but out is split and concatenated, then multiplied by sigmoid(gate_proj(x)). Since multiplication is elementwise, order preserved.
+
+Maybe the problem is that they used scaled_dot_product_attention with same k,v but different q_chunk, and concatenated results. That's mathematically equivalent.
+
+Why wrong tokens? Could be due to numerical differences accumulating? But they said tiny rounding differences allowed.
+
+Maybe the issue is that they changed the code for all layers, but for sliding window layers, mask is an array, not "causal". Splitting heads should be fine for array mask too.
+
+Wait the error in attempt 4: they split sequence, not heads. That caused mask misalignment.
+
+We need a solution that is mathematically identical.
+
+Best solution: split heads into chunks that are multiples of n_kv and satisfy fused condition. For L=3, chunk_heads=16 works. For L=4, need chunk_heads <= 32*2/4=16. So 16 works. For L=5, max chunk_heads = 32*2/5=12.8 => multiple of 2 =>12. So chunk_heads=12 works? 12/2=6, 5*6=30 <=32. So we can compute chunk_heads as largest multiple of n_kv <= 32*n_kv//L.
+
+We need to ensure chunk_heads divides n_heads evenly? Not necessarily, last chunk can be smaller. That's fine as long as it's multiple of n_kv. Earlier attempt 1 failed because chunk_heads=21 not multiple of 2. So we need to ensure multiple.
+
+Also need to ensure that for each layer, the split is consistent. The earlier attempt 2 used fixed chunk_heads=16 for L==3 only. That should be correct. Why wrong tokens? Maybe because they only applied for L==3, but the prompt-lookup decoding also uses 3-token pass with different L? Hmm.
+
+Wait the prompt-lookup decoding uses 2 tokens guesses, so L is 3? Actually last token + 2 guesses = 3 tokens. So L=3 always for that pass. So fine.
+
+Maybe the issue is that they changed Attention.__call__ for all layers, but the cache.update_and_fetch is called before splitting. That's fine.
+
+Could be that splitting heads changes the order of the output concatenation relative to original head order? No.
+
+Maybe the problem is that they used scaled_dot_product_attention with same k,v but k,v are already transposed and have shape (B, n_kv_heads, L, head_dim). When we split q into chunks, we still pass full k,v. That's fine.
+
+Wait maybe the issue is that the gate_proj(x) is applied after concatenation, but x is same. Fine.
+
+Hmm.
+
+Alternative approach: Instead of splitting heads, we can keep heads intact but split the query sequence into chunks of size <=2, and for each chunk we need to adjust the causal mask to reflect absolute positions. We can convert mask="causal" to an explicit mask array for these short passes, then slice correctly.
+
+Simpler: For L between 2 and 8, we can process queries in chunks of size max_chunk_len where max_chunk_len = floor(32 * n_kv / n_heads). That's 2. So we need to process 2 tokens at a time. To keep mask correct, we need to know absolute positions. We can create an explicit causal mask for the current L and cache offset.
+
+We know cache offset? In Attention.__call__, cache has offset attribute. The total number of keys = cache.offset + L? Actually cache.update_and_fetch returns k,v for current L, and cache offset is previous length. The keys correspond to positions offset .. offset+L-1? Hmm.
+
+Alternative simpler: Just process L=3 by splitting into 2+1, but for each chunk we need to adjust the mask to be causal with respect to absolute positions. We can create an explicit mask array for the whole L, then slice it appropriately for each chunk.
+
+Implementation plan:
+
+If cache is not None and 2 <= L <= 8:
+  compute max_chunk_len = 32 * n_kv // n_heads  ( =2 )
+  if L <= max_chunk_len: use original
+  else:
+    we need to split sequence into chunks of size max_chunk_len.
+    For each chunk, we need a mask that reflects absolute positions.
+    Since mask is either None, "causal", or array.
+    If mask is "causal", we can create an explicit causal mask for the current L with respect to cache offset.
+    Then slice it.
+
+Simpler: just for L=3, we can process first 2 tokens with fused kernel, and last 1 token separately, using explicit mask.
+
+Let's implement a robust solution: For short decoding passes (2 <= L <= 8), we compute max_chunk_len as above. If L > max_chunk_len, we split sequence into chunks, and for each chunk we construct an explicit mask array that matches original causal behavior.
+
+How to construct causal mask? For query positions i = 0..L-1 (relative to current batch), the keys are from cache (previous tokens) plus current queries? Actually k,v already include current queries? Wait k,v are from current x only, not cache? In code, k,v are computed from x, then cache.update_and_fetch(k,v) returns updated k,v that includes history. So k,v after update contain all keys up to current L.
+
+Thus the attention is over all keys in cache (including current). With causal mask, each query can attend to keys up to its own position.
+
+If we split queries into chunks, we need to ensure each query sees correct subset of keys.
+
+If we process chunk [start:end], the keys should be all keys up to end-1 (since query at position end-1 can see up to itself). But if we pass full k,v, the attention will allow query at start to see keys from start..end-1 which is okay? Actually query at start should not see future keys within chunk (e.g., query at position 0 should not see query at position 1). With causal mask, within chunk, the mask will prevent seeing future within chunk. That's fine.
+
+But the issue is that the mask also needs to account for the offset of the chunk relative to the start of the sequence. Since we are processing chunk in isolation, the causal mask assumes queries start at 0. If we slice queries, the relative positions within chunk are preserved (0..chunk_len-1). So the mask is correct for intra-chunk dependencies. The only missing part is that queries should also be able to attend to keys from previous chunks (earlier tokens). Since k,v includes all keys, and the mask for chunk will allow attending to all keys in k,v? Wait k,v includes all keys for the whole L, not just previous chunks. If we pass full k,v, the attention will consider keys from later chunks as well, which is wrong.
+
+Thus splitting sequence requires we also slice keys to only include keys up to current chunk's end.
+
+Solution: For each chunk, we need to slice both q and k,v to the prefix up to end.
+
+That is, for chunk start..end, we should use k_chunk = k[:, :, :end, :] and v_chunk = v[:, :, :end, :]. Then the causal mask for chunk will be correct.
+
+Let's test: L=3, max_chunk_len=2. First chunk start=0,end=2: q_chunk = q[:, :, 0:2, :], k_chunk = k[:, :, 0:2, :], v_chunk = v[:, :, 0:2, :]. Process. Second chunk start=2,end=3: q_chunk = q[:, :, 2:3, :], k_chunk = k[:, :, 0:3, :]? Wait if we use prefix up to end, k_chunk includes keys 0..2. That's correct because query at position 2 can see keys 0..2. So we need k_chunk to be prefix up to end.
+
+Thus algorithm:
+for start in range(0, L, max_chunk_len):
+  end = min(start+max_chunk_len, L)
+  q_chunk = q[:, :, start:end, :]
+  k_chunk = k[:, :, :end, :]   # prefix
+  v_chunk = v[:, :, :end, :]
+  out_chunk = SDPA(q_chunk, k_chunk, v_chunk, ...)
+  collect.
+
+This should be mathematically equivalent to full attention because attention for each query only depends on keys up to its position, and we are providing exactly those keys.
+
+Now mask: if mask is "causal", SDPA will apply causal mask assuming queries start at 0 and keys start at 0. Since k_chunk is prefix, the causal mask will be correct.
+
+If mask is an array (sliding window), we need to slice mask accordingly: mask_chunk = mask[..., start:end, :end] ? Hmm.
+
+Simpler: just use the prefix slicing for k,v and keep mask as original (string or array). For array mask, we need to slice both dimensions.
+
+Given complexity, maybe easiest is to just split heads, not sequence, and ensure chunk_heads is multiple of n_kv and divides n_heads? Let's try head split with dynamic chunk size.
+
+For L=3, max_chunk_heads = floor(32 * n_kv / L) = floor(64/3)=21. Largest multiple of 2 <=21 is 20. So chunk_heads=20 works? 20/2=10, 3*10=30 <=32. So we can split heads into 20 and 12. That's multiple of 2. That should be fine.
+
+Earlier attempt 2 used chunk_heads=16 fixed. That should also be fine.
+
+Why wrong tokens? Maybe because they only applied for L==3, but the prompt-lookup decoding also uses L=2 for some steps? Actually prompt-lookup decoding checks guesses, maybe it uses L=3 always.
+
+Hmm.
+
+Maybe the issue is that the gate_proj(x) is applied after concatenation, but x is same for all heads. That's fine.
+
+Could be that the order of heads matters for the subsequent linear projection o_proj? No, o_proj is linear, so sum of heads is linear.
+
+Wait maybe the problem is that they changed Attention.__call__ for all layers, but the cache.update_and_fetch is called before splitting, which updates cache with k,v for the whole L. That's fine.
+
+I think the head split approach is correct and should be bit-identical. The earlier attempts with head split produced wrong tokens, maybe because they used chunk_heads=16 for L==3, but they also used same k,v for all chunks, which is fine.
+
+Maybe the issue is that they used scaled_dot_product_attention with same cache object, which may have side effects? No.
+
+Alternative: The problem might be that the attention output is multiplied by sigmoid(gate_proj(x)) before o_proj. If we split heads, we compute out_chunk, concatenate, then multiply by gate. That's same as original.
+
+Hmm.
+
+Let's search for known issue: splitting heads changes the order of operations for RMSNorm? No.
+
+Maybe the issue is that the attention is computed with different numerical precision due to different reduction order? Could cause small differences that accumulate to wrong token. But they said tiny rounding differences allowed.
+
+Maybe the real issue is that the fused kernel condition also requires query_length <=8. We are fine.
+
+Wait the MLX fact: fused kernel for short queries (query length <=8), but only if query_length * (number of query heads / number of key-value heads) <=32. So condition is query_length * ratio <=32. Ratio = n_heads / n_kv =16. So query_length <=2. So for L=3, we need to reduce effective query length. Splitting heads reduces ratio per chunk. Splitting sequence reduces query length.
+
+Both should work.
+
+Maybe the problem with head split is that the attention output is summed over heads, but the softmax is per head. Splitting heads is fine.
+
+I think the head split with dynamic chunk size multiple of n_kv should be correct.
+
+Let's implement head split with dynamic chunk size, ensuring chunk_heads is multiple of n_kv and <= n_heads, and condition satisfied. Also ensure we only apply for 2 <= L <= 8 and cache is not None.
+
+Also ensure we don't split when L <= max_chunk_len (i.e., already fused). For L=2, max_chunk_len=2, ratio=16, 2*16=32 fits, so no split needed.
+
+For L=3, max_chunk_heads = floor(32 * n_kv / L) = floor(64/3)=21. Largest multiple of n_kv <=21 is 20. So chunk_heads=20. That's fine.
+
+Implement head split with chunk_heads computed as above.
+
+Also ensure we handle the case where chunk_heads < n_kv -> fallback.
+
+Let's implement final variant with head split dynamic.
+
+Also ensure we don't change behavior for L=1.
+
+Let's produce final file.<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_head_split_dynamic — split query heads into n_kv multiples for short decoding passes."""
+
+NAME = "v1_head_split_dynamic"
+EXACT = True
+DESCRIPTION = "Split query heads into multiples of n_kv for 2-8 token decoding passes to satisfy fused SDPA condition."
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    _orig_call = mg.Attention.__call__
+
+    def _patched_call(self, x: mx.array, mask=None, cache=None) -> mx.array:
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # Only modify short decoding passes; keep 1-token and prompt processing bit-identical
+        if cache is not None and 2 <= L <= 8:
+            n_heads = self.n_heads
+            n_kv = self.n_kv_heads
+            # fused kernel condition: L * (chunk_heads / n_kv) <= 32
+            max_chunk_heads = 32 * n_kv // L
+            # make it a multiple of n_kv and at least n_kv
+            chunk_heads = (max_chunk_heads // n_kv) * n_kv
+            if chunk_heads < n_kv:
+                chunk_heads = n_kv
+            if chunk_heads > n_heads:
+                chunk_heads = n_heads
+
+            # if already fused, use original path
+            if L * (n_heads // n_kv) <= 32:
+                out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+            elif chunk_heads >= n_heads:
+                out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+            else:
+                outs = []
+                for start in range(0, n_heads, chunk_heads):
+                    end = start + chunk_heads
+                    if end > n_heads:
+                        end = n_heads
+                    q_chunk = q[:, start:end, :, :]
+                    out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+                    outs.append(out_chunk)
+                out = mx.concatenate(outs, axis=1)
+        else:
+            out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = _patched_call
+
+
+def post_load(model):
+    pass
+```

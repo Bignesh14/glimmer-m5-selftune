@@ -20,3 +20,11 @@ time,run_id,arm,strength,attempt,variant,gen_tokens,reasoning_tokens,gen_seconds
 2026-10-28 11:12:46,guided_medium_p2_20261028-072922_refine_20261028-110556,guided,medium,3,g_guided_medium_10281112_r3,3966,3407,171.1,True,ok,PASS (bit-exact),
 2026-10-28 13:40:04,guided_medium_p2_20261028-072922_refine_20261028-134004,guided,medium,1,g_guided_medium_10281340_r1,1813,1177,87.2,True,ok,PASS (bit-exact),
 2026-10-28 17:17:12,guided_medium_p2_20261028-072922_refine_20261028-171712,guided,medium,1,g_guided_medium_10281717_r1,2773,1895,126.6,True,ok,PASS (bit-exact),
+2026-10-30 20:02:19,h9_guided_medium_20261030-200218,guided,medium,1,g_h9_medium_10302002_a1,4302,3490,171.4,True,ok,PASS (bit-exact),cost run failed
+2026-10-30 20:06:26,h9_guided_medium_20261030-200218,guided,medium,2,g_h9_medium_10302006_a2,2469,1726,102.2,True,ok,PASS (bit-exact),L3=1.21; h8_check FAIL
+2026-10-30 20:10:34,h9_guided_medium_20261030-200218,guided,medium,3,g_h9_medium_10302010_a3,5497,4744,222.2,True,ok,PASS (bit-exact),L3=1.20; h8_check FAIL
+2026-10-30 20:16:41,h9_guided_medium_20261030-200218,guided,medium,4,g_h9_medium_10302016_a4,4038,3180,167.4,True,ok,PASS (bit-exact),L3=1.21; h8_check FAIL
+2026-10-30 22:04:45,h9_guided_medium_20261030-200218_refine_20261030-220445,guided,medium,1,g_h9_medium_10302204_r1,4719,3920,196.5,True,ok,PASS (bit-exact),L3=1.21; h8_check FAIL
+2026-10-30 22:10:27,h9_guided_medium_20261030-200218_refine_20261030-220445,guided,medium,2,g_h9_medium_10302210_r2,8001,7226,328.5,True,ok,PASS (bit-exact),L3=1.23; h8_check FAIL
+2026-10-30 22:18:23,h9_guided_medium_20261030-200218_refine_20261030-220445,guided,medium,3,g_h9_medium_10302218_r3,16000,16000,649.5,False,-,NO CODE,hit max tokens
+2026-10-30 22:29:16,h9_guided_medium_20261030-200218_refine_20261030-220445,guided,medium,4,g_h9_medium_10302229_r4,3523,2885,152.8,True,ok,PASS (bit-exact),cost run failed

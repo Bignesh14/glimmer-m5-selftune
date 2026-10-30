@@ -1,0 +1,385 @@
+ to=self<|message|>Correctness: PASS. 3-token pass: 1.21x (good). But prompt-lookup decoding with your variant produced wrong tokens...
+
+We need to make 3-token forward pass cheaper at long context, by changing model code. Rules: one-token decoding and prompt processing must stay BIT-IDENTICAL to original (set EXACT=True): only forward passes of 2 to 8 tokens may change. In those passes outputs must be same attention computed differently (tiny rounding differences allowed).
+
+We have been splitting heads, but causing wrong tokens. The issue: splitting heads changes order? Actually splitting heads and concatenating should be equivalent. But maybe mask handling? Or cache update? Wait.
+
+The problem: we are splitting q into chunks, but k and v remain full. That's fine because attention is per head group. However n_heads must be multiple of n_kv_heads. Splitting into chunk_heads that is multiple of n_kv_heads should be fine. But earlier error n_heads 21 for n_kv_heads 2. That was because we used max_chunk = 32 * n_kv // L, which for L=3 gives 32*2//3=21. That's not multiple of 2. So we need multiple.
+
+But still wrong tokens. Maybe the issue is that we are using same cache for each chunk, but cache.update_and_fetch already happened before split. That's fine.
+
+Wait: The attention output is sum over heads? No, each head independent. Splitting heads and concatenating should be identical.
+
+But maybe the problem is that we are changing behavior for L between 2 and 8, but prompt-lookup decoding uses 3-token passes where we guess 2 tokens after last 2 tokens. The forward pass is for 3 tokens (last token + 2 guesses). That's L=3. Splitting heads should be fine.
+
+Why wrong tokens? Maybe because we are also changing for L=2? The prompt-lookup decoding may use 2-token passes? The spec says 2 to 8 tokens may change. But maybe the change affects the logits for the 3-token pass, which is used to evaluate guesses. If we change computation, rounding differences allowed, but must be same attention computed differently. Splitting heads should be mathematically identical, but due to floating point non-associativity? Could be tiny rounding differences allowed. But wrong tokens with large margin 25 nats suggests something fundamentally wrong.
+
+Maybe the issue is that we are applying split for all layers, including sliding window layers where mask is an array, not "causal". Our code passes mask unchanged to each chunk. If mask is an array of shape (..., L, K), slicing? We didn't slice mask. For head split, mask is same for all heads, so fine.
+
+Wait earlier attempt 4 split sequence, causing wrong tokens. Now head split.
+
+Maybe the problem is that we are using cache.update_and_fetch before split, which updates cache with k,v from current x. That's fine. But if we split q, we still use same k,v. That's fine.
+
+Could be that the fused kernel condition also depends on query length <=8 and query_length * (number of query heads / number of key-value heads) <=32. That's condition for fused kernel. We are splitting heads to satisfy condition. But we are also changing the order of operations: rms_norm, etc. That's same.
+
+Maybe the issue is that we are applying the split for all layers, but for global layers (full_attention) mask is "causal" string, and for sliding layers mask is array. The scaled_dot_product_attention with mask string "causal" aligns mask to end of keys. If we split heads, each chunk still sees same keys, so fine.
+
+Hmm.
+
+Alternative approach: Instead of splitting heads, we can split the query sequence into smaller chunks along L dimension, but keep heads intact. That would preserve attention per head. Splitting sequence into chunks of size 1 or 2 would make query_length * (heads/kv) <=32. For L=3, max_chunk_len = 32*2//32=2. So split into 2+1. That should be mathematically equivalent if we concatenate results in order. That might be safer? Earlier attempt 4 split sequence but maybe mask slicing was wrong.
+
+Wait attempt 4 split sequence: they did mask slicing incorrectly? They tried to slice mask but maybe they didn't handle correctly for string mask. Also they used max_chunk_len = 32 * n_kv // n_heads = 32*2//32=2. Good. Then they split q into chunks of size 2. They concatenated along axis 2 (sequence). That should be correct.
+
+But they got wrong tokens.
+
+Maybe the root cause is that we are changing the computation for L in 2..8, but the prompt-lookup decoding also uses the same model for normal decoding? The check for wrong tokens compares H8 decoding vs normal decoding. If we change the model for 2-8 token passes, then the 3-token forward pass used for guessing is different, but the actual token generation when accepted should be same as normal decoding? Wait prompt-lookup decoding uses the model to evaluate guesses. If we change the model, the logits for the 3-token pass will be different, leading to different guesses being accepted. That's expected? The requirement: "prompt-lookup decoding with your variant must produce no wrong tokens on that long prompt." So the variant must not change the output of the 3-token pass in a way that changes which tokens are chosen. The attention must be same, just computed differently.
+
+So splitting heads should be mathematically identical, but maybe due to numerical differences in softmax? Splitting heads doesn't change softmax per head. Should be identical.
+
+Wait maybe the issue is that we are applying the split for all layers, but the condition for fused kernel also requires query length <=8. That's satisfied. But the fused kernel also requires query_length * (number of query heads / number of key-value heads) <=32. That's per call. If we split heads, each chunk has fewer heads, so condition satisfied. Good.
+
+But maybe the problem is that we are using scaled_dot_product_attention with same k,v for each chunk, but k,v are repeated across heads? Actually k and v have shape (B, n_kv_heads, L, head_dim). q_chunk has shape (B, chunk_heads, L, head_dim). The SDPA expects queries and keys to have compatible head counts? In MLX, scaled_dot_product_attention expects queries shape (..., n_q_heads, L, head_dim) and keys shape (..., n_kv_heads, L, head_dim). It internally repeats keys for each query head group. So splitting q into fewer heads should be fine.
+
+Maybe the issue is that we are changing the computation for L=2..8, but the cache offset for RoPE is applied before split. That's fine.
+
+Wait maybe the problem is that we are applying the split for all layers, but for layers with sliding window, the mask is an array, and we are passing same mask to each chunk, which is fine because mask is per position, not per head.
+
+Hmm.
+
+Alternative insight: The fused kernel condition is query_length * (number of query heads / number of key-value heads) <=32. With n_heads=32, n_kv=2, ratio=16. So query_length <=2. So for L=3, we need to reduce effective query heads. Splitting heads reduces heads per call. That's what we did.
+
+But maybe the issue is that we are splitting heads, but the output projection o_proj expects the concatenated heads in original order. If we split and concatenate in order, it's fine.
+
+Could be that the problem is that we are applying the split for L=2..8, but the prompt-lookup decoding also uses 2-token passes for verification? The spec says 2 to 8 tokens may change. So okay.
+
+Maybe the real issue is that we are changing the computation for all layers, including those where use_rope is False (global layers). For global layers, RoPE not applied. Still fine.
+
+Wait the wrong tokens appear at token 1,2,4,5,8... That's early. Maybe the first few tokens after context are affected because cache is being updated? Hmm.
+
+Alternative approach: Instead of splitting heads, we can keep heads intact but split the query sequence into smaller chunks along L, which preserves head grouping. That might be more numerically stable? Splitting heads might change the order of operations for the gate_proj? No.
+
+Wait maybe the issue is that we are doing cache.update_and_fetch before split, which updates cache with k,v from current x. That's fine. But if we split q, we still use same k,v. Good.
+
+Could be that the problem is that we are using the same cache object for multiple SDPA calls, and cache.update_and_fetch already consumed the k,v? No, update_and_fetch returns k,v, doesn't modify cache? It does update cache.
+
+Hmm.
+
+Maybe the issue is that we are applying the patch to Attention.__call__, but the model also has other places where Attention is used? No.
+
+Let's think about the error messages: 26 wrong tokens, margins up to 25 nats. That's huge. Means logits are completely different. Could be that we are accidentally using the wrong mask for chunks? For causal mask string, it's fine. For array mask, we didn't slice. In head split, mask is unchanged. So fine.
+
+Wait maybe the problem is that we are applying the split for L between 2 and 8 inclusive, but the condition for fused kernel is query_length <=8 AND query_length * (heads/kv) <=32. For L=3, heads/kv=16, product=48 >32. So we need to split. But we also split for L=2, where product=32, so fused kernel should already be used! For L=2, 2*16=32, so condition satisfied. So splitting for L=2 is unnecessary and may cause numerical differences? Splitting heads for L=2 would still be correct mathematically, but maybe due to rounding differences? Could be okay.
+
+But the wrong tokens appear early, maybe because the first 3-token pass is affected.
+
+Alternative idea: Instead of splitting heads, we can transpose the query to make query length smaller? No.
+
+Maybe the issue is that we are changing the computation for all layers, but the layer pattern includes sliding window layers where mask is an array. The scaled_dot_product_attention with mask array may have different behavior when query heads are split? No.
+
+Wait maybe the problem is that we are using the same k and v for each chunk, but k and v are shared across heads via GQA. The SDPA implementation expects queries and keys to have same number of heads? No, it handles GQA internally by repeating keys.
+
+If we split queries into chunks, the effective number of query heads per call is reduced, so the GQA mapping changes? Actually GQA maps each query head to a KV head via modulo. Splitting queries into a contiguous subset of heads still maps correctly. So fine.
+
+Maybe the issue is that we are not handling the case where chunk_heads is not divisible by n_kv? We ensured multiple.
+
+Wait in our current code, we compute chunk_heads = (max_chunk_heads // n_kv) * n_kv. max_chunk_heads = 32 * n_kv // L. For L=3, max_chunk_heads = 32*2//3=21. 21//2=10, *2=20. So chunk_heads=20. That's multiple of 2. Good. Then we split into 20-head chunks. First chunk 0-20, second 20-32 (12 heads). That's fine.
+
+But maybe the problem is that we are using the same k,v for each chunk, but the SDPA implementation may assume that the number of query heads is a multiple of n_kv_heads? It is. 20 is multiple of 2, 12 is multiple of 2. Good.
+
+Hmm.
+
+Alternative approach: Instead of splitting heads, we can keep heads intact but process the query in two passes with different offsets? No.
+
+Maybe the real issue is that we are modifying Attention.__call__ for all layers, but the model also uses Attention for prompt processing? Prompt processing uses L large, so cache is None, so we don't split. Good.
+
+Wait the spec says: "One-token decoding and prompt processing must stay BIT-IDENTICAL to the original (set EXACT = True): only forward passes of 2 to 8 tokens may change. In those passes the outputs must be the same attention computed differently (tiny rounding differences are allowed there)." So we can change 2-8 token passes.
+
+But the prompt-lookup decoding uses the model to generate tokens one by one, but with lookahead. The 3-token pass is used to evaluate guesses. If we change the computation, the logits may differ slightly, but should still pick same token if differences are tiny. But we see large differences.
+
+Maybe the issue is that we are splitting heads, but the gate_proj(x) is computed once, and then multiplied with out. That's fine.
+
+Wait maybe the problem is that we are applying the split after cache.update_and_fetch, which for sliding window layers uses RotatingKVCache. The cache.update_and_fetch returns k,v that are already rotated? That's fine.
+
+Could be that the issue is that we are using the same cache object for multiple SDPA calls, and the cache is mutated? No.
+
+Alternative idea: The fused kernel condition also requires query length <=8. That's satisfied. But the condition also requires query_length * (number of query heads / number of key-value heads) <=32. That's what we used.
+
+But maybe the fused kernel also requires that the number of query heads is divisible by number of key-value heads? It is.
+
+Hmm.
+
+Maybe the problem is that we are splitting heads, but the output of SDPA is summed over heads? No.
+
+Let's search mental: The SDPA implementation in MLX may have a fast path that assumes the number of query heads is the same as original? No.
+
+Another possibility: The attention output is computed as out = scaled_dot_product_attention(...). The output shape is (B, n_heads, L, head_dim). If we split heads, we get chunks, concatenate along axis 1, which restores original shape. Good.
+
+Maybe the issue is that we are using the same mask for each chunk, but for causal mask string, the mask is applied based on query length. If we split heads, query length stays same, so fine.
+
+Wait maybe the problem is that we are applying the split for all layers, but for layers where use_rope is True, we applied RoPE to q before split. That's fine.
+
+Could be a bug in our code: we compute chunk_heads = (max_chunk_heads // n_kv) * n_kv. For L=3, max_chunk_heads=21, chunk_heads=20. Good. But we also check if L * (n_heads // n_kv) <=32, then use original. That's 3*16=48 >32, so we split.
+
+But we also have condition if chunk_heads >= n_heads: use original. 20 <32, so split.
+
+Now, the first chunk is 0-20, second is 20-32. That's fine.
+
+But maybe the issue is that we are using the same k and v for each chunk, but the SDPA implementation may internally assume that the number of query heads is a multiple of n_kv_heads, which it is. Good.
+
+Hmm.
+
+Maybe the real issue is that we are changing the computation for L=2..8, but the prompt-lookup decoding also uses the model for 1-token passes to generate the actual token after acceptance. That's fine.
+
+Wait the error says 26 wrong tokens, accepted 93%. That means the model is accepting guesses that are wrong compared to normal decoding. That suggests the logits for the 3-token pass are different enough to change the ranking.
+
+Maybe the splitting introduces numerical differences due to different order of operations in softmax? Splitting heads doesn't change softmax per head, so should be identical.
+
+Unless the SDPA implementation uses a different algorithm for the fused kernel vs unfused, which may have different numerical precision. The spec says outputs must be same attention computed differently (tiny rounding differences allowed). So using fused kernel vs unfused is allowed if results are same within rounding. But we are using unfused for chunks? Wait we are using SDPA for each chunk, which will use fused kernel because chunk_heads smaller. So we are switching from unfused to fused. That's allowed if results are same within rounding.
+
+But maybe the fused kernel uses a different numerical precision (e.g., uses float32 accumulation vs float16?). Could cause differences.
+
+Alternative approach: Instead of splitting heads, we can keep heads intact but split the query sequence into smaller chunks along L, which will also hit fused kernel. That might be more numerically stable because the attention computation per head is same, just split across sequence. That might preserve numerical results better? Splitting sequence also changes order of operations for softmax across positions? Softmax is per query position, so splitting sequence is independent.
+
+Maybe the issue is that splitting heads changes the order of heads, but the output projection o_proj is linear, so order matters. But we concatenate in order, so fine.
+
+Wait maybe the problem is that we are using the same cache for multiple SDPA calls, and the cache object is mutated between calls? No.
+
+Let's think about the referee summary: Attempts 2 and 3 split heads, got cheaper but wrong tokens. Attempt 4 split sequence, got cheaper but wrong tokens. The referee says: "A correct split computes exactly the same attention as the unsplit pass. Wrong tokens mean that in some layers some query row attends to a different set of keys than it does in the original 3-token pass."
+
+So the split is causing different keys to be attended to. That suggests we are changing the mask handling. For sequence split, if we split query sequence, we need to adjust mask accordingly. If we don't adjust mask, the second chunk will attend to keys beyond its range? Wait mask is causal, so query i attends to keys up to i. If we split sequence into chunks, the second chunk's queries are at positions 2 and 3 (if first chunk is 0-1). The keys are still the full cache. The mask for causal should still be correct because the query positions are absolute. If we just slice q, the positions are preserved? The q tensor has shape (B, n_heads, L, head_dim). If we slice along L dimension, we get a subset of positions. The SDPA with causal mask will assume the queries are at the start of the sequence? The mask is applied based on relative positions within the query tensor, not absolute positions. The MLX SDPA with mask="causal" assumes queries are contiguous at the end of the key sequence. If we slice q to get positions 2-3, the SDPA will think they are positions 0-1 relative to the query tensor, so the causal mask will be wrong.
+
+Ah! That's the key! The causal mask is aligned to the end of keys. If we split the query sequence, the relative positions change. The SDPA with mask="causal" assumes the queries are the last L positions. If we take a slice of queries, the positions are no longer at the end, so the mask is wrong.
+
+Similarly, for head split, the positions are preserved, so mask is fine.
+
+But for head split, why wrong tokens? Maybe because the SDPA implementation also assumes that the number of query heads is the same as original? No.
+
+Wait for head split, positions are preserved, so mask is fine.
+
+Hmm.
+
+Maybe the issue with head split is that the SDPA implementation with GQA expects the query heads to be in a specific order relative to KV heads. Splitting heads into chunks changes the mapping? Actually mapping is per head index modulo n_kv. If we take a contiguous chunk of heads, the mapping is preserved.
+
+But maybe the SDPA implementation uses the number of query heads to determine the number of key-value heads? No.
+
+Alternative idea: The fused kernel condition is query_length * (number of query heads / number of key-value heads) <=32. That's per call. If we split heads, we reduce heads per call, so condition satisfied. But the SDPA implementation may also require that the number of query heads is divisible by number of key-value heads, which it is.
+
+Maybe the issue is that we are using the same k and v for each chunk, but k and v are shared across heads via broadcasting. That's fine.
+
+Wait maybe the problem is that we are applying the split for all layers, but for layers with sliding window, the mask is an array, not string. The mask array shape is (..., L, K). If we split heads, mask is unchanged, fine.
+
+Hmm.
+
+Let's re-read the referee summary: Attempts 2 and 3 split heads, got cheaper but wrong tokens. Attempt 4 split sequence, got cheaper but wrong tokens. The referee says wrong tokens mean some query row attends to different set of keys.
+
+For head split, query rows are same, keys same. So why different keys? Maybe because the SDPA implementation with GQA repeats keys for each query head group. If we split heads, the repetition pattern changes? No.
+
+Wait maybe the issue is that we are using cache.update_and_fetch before split, which for sliding window layers returns k,v that are already limited to window size. That's fine.
+
+Another possibility: The attention output is multiplied by sigmoid(gate_proj(x)). The gate_proj(x) is computed once, but if we split heads, we compute out_chunk for each chunk, then concatenate, then multiply by gate. That's fine.
+
+Maybe the issue is that we are using the same cache object for multiple SDPA calls, and the cache has a `sinks` parameter? No.
+
+Let's think about the fused kernel condition more carefully. The condition is query_length * (number of query heads / number of key-value heads) <=32. With n_heads=32, n_kv=2, ratio=16. So query_length <=2. So for L=3, we need to reduce effective heads. Splitting heads reduces heads per call, so ratio reduces.
+
+But the SDPA implementation may also have a requirement that the number of query heads is a multiple of the number of key-value heads, which we satisfy.
+
+Maybe the issue is that we are splitting heads, but the output projection o_proj expects the heads to be in original order, which we preserve.
+
+Hmm.
+
+Could be that the problem is that we are applying the split for L=2..8, but the prompt-lookup decoding uses 3-token passes where the first token is the actual next token, and the second and third are guesses. The model is called with inputs of length 3, but the cache already contains previous tokens. The query positions are absolute. Splitting heads should be fine.
+
+Wait maybe the issue is that we are using the same k and v for each chunk, but k and v are already transposed and have shape (B, n_kv_heads, L, head_dim). When we call SDPA with q_chunk of shape (B, chunk_heads, L, head_dim), the SDPA will internally repeat k for each query head. That's fine.
+
+Maybe the problem is numerical: The fused kernel uses a different algorithm that may have different rounding, but the spec allows tiny rounding differences. But we see large differences.
+
+Could be that we are accidentally using the same cache for multiple SDPA calls, and the cache is being updated between calls? No, update_and_fetch already happened.
+
+Wait maybe the issue is that we are applying the split for all layers, but the model has 52 layers, and some layers are global (full_attention) with no RoPE. For those layers, the mask is "causal". For sliding layers, mask is array. The SDPA with mask array may have different behavior when query heads are split? No.
+
+Alternative approach: Instead of splitting heads, we can keep heads intact but process the query in a way that still hits fused kernel without changing the computation. How? The fused kernel condition is query_length * (heads/kv) <=32. We can reduce effective query length by processing the 3 tokens one at a time? But that would be 3 separate forward passes, not one.
+
+Wait the prompt-lookup decoding does a 3-token forward pass to evaluate guesses. We could split the 3-token pass into three 1-token passes? That would be more expensive.
+
+Another idea: We can use the fact that the fused kernel condition also requires query length <=8. That's satisfied. The condition is query_length * (heads/kv) <=32. For L=3, heads/kv=16, product=48 >32. So we need to reduce heads/kv.
+
+We could split heads, but maybe we need to also ensure that the number of query heads per chunk is a multiple of n_kv_heads and also that the total number of heads across chunks sums to original. That's what we do.
+
+Maybe the issue is that we are using the same k and v for each chunk, but the SDPA implementation may assume that the query heads are contiguous in the original order, which they are.
+
+Hmm.
+
+Let's search for known issues: In MLX, scaled_dot_product_attention with GQA, the query heads are grouped. Splitting heads might change the grouping because the heads are interleaved? Actually GQA maps query head i to kv head i % n_kv. If we take a contiguous chunk of heads, the mapping is preserved.
+
+Wait maybe the problem is that we are splitting heads, but the output of SDPA is concatenated along axis 1, which is the head dimension. That's correct.
+
+Could be a bug in our code: we compute chunk_heads = (max_chunk_heads // n_kv) * n_kv. For L=3, max_chunk_heads=21, chunk_heads=20. Then we loop for start in range(0, n_heads, chunk_heads). That gives start=0,20. For start=0, end=20. For start=20, end=32. Good.
+
+But we also have condition if L * (n_heads // n_kv) <=32: use original. That's 48 >32, so we split.
+
+Now, what about the case where chunk_heads is 20, but the last chunk has 12 heads. That's fine.
+
+Maybe the issue is that we are using the same k and v for each chunk, but the SDPA implementation may cache something based on the number of query heads? Unlikely.
+
+Alternative approach: Instead of splitting heads, we can split the query sequence into chunks of size 1 or 2, but we need to adjust the mask to account for absolute positions. For causal mask string, the SDPA assumes queries are at the end of keys. If we split sequence, we need to adjust the offset for each chunk. We could pass a different mask or adjust the query positions.
+
+Simpler: We can keep the computation identical by using the original SDPA for the whole query, but we can trick the kernel into using fused path by temporarily reducing the number of query heads? No.
+
+Another idea: We can use the fact that the fused kernel condition is query_length * (number of query heads / number of key-value heads) <=32. We can reduce the effective number of query heads by using a trick: we can process the query heads in groups, but we need to ensure the output is identical. That's what we do.
+
+Maybe the issue is that we are applying the split for all layers, but the model has different n_heads? No, n_heads is constant.
+
+Wait maybe the problem is that we are modifying Attention.__call__, but the model also has a property `layers` that is used elsewhere? No.
+
+Let's think about the referee's comment: "A correct split computes exactly the same attention as the unsplit pass. Wrong tokens mean that in some layers some query row attends to a different set of keys than it does in the original 3-token pass." So the split is causing different keys to be attended to. That suggests the mask is being applied incorrectly.
+
+For head split, keys are same. So maybe the issue is that the SDPA implementation with GQA uses the number of query heads to determine how to repeat keys. If we split heads, the repetition pattern changes? Actually repeating keys for each query head is independent of which query heads we have. The keys are repeated for each query head based on head index modulo n_kv. If we take a subset of query heads, the mapping is still correct.
+
+Wait maybe the issue is that we are using the same cache for multiple SDPA calls, and the cache object has a `offset` attribute that is used for RoPE. We applied RoPE before split, so fine.
+
+Another possibility: The attention output is multiplied by sigmoid(gate_proj(x)). The gate_proj(x) is computed once, but if we split heads, we compute out_chunk for each chunk, then concatenate, then multiply by gate. That's fine.
+
+Maybe the issue is that we are using the same `cache` object for multiple SDPA calls, and the SDPA implementation may modify the cache in-place? No.
+
+Let's try a different approach: Instead of splitting heads, we can split the query into two parts: first 2 tokens and last 1 token, process them separately with correct masks. That would preserve attention. For L=3, we can process first 2 tokens together (L=2, fused), and last 1 token separately (L=1, fused). Then concatenate results. That would be mathematically identical because attention for each query position is independent. The mask for causal is fine if we process each chunk with correct offset.
+
+For sequence split, we need to adjust the mask to reflect absolute positions. If we process first 2 tokens (positions 0,1) and last 1 token (position 2), the causal mask for the last token should allow attending to all previous keys, including those from the first 2 tokens and the cache. If we process them separately, we need to ensure the keys include the previous tokens from the same chunk.
+
+Simpler: Process the 3 tokens as two chunks: first 2 tokens, then 1 token. For the first chunk, we need keys from cache + first 2 tokens? Wait the query tokens are the 3 new tokens. The keys are from cache + these 3 tokens. If we process first 2 tokens first, they should only attend to cache + first 2 tokens (with causal). If we process them separately, we need to include the first 2 tokens as keys for the second chunk? Actually the second chunk (token 2) should attend to cache + all 3 tokens? No, causal: token 2 can attend to tokens 0,1,2. If we process token 2 separately, we need keys from cache + tokens 0,1,2. But if we already processed tokens 0,1, we have updated cache? Hmm.
+
+Alternative: Process the 3 tokens in order, updating cache incrementally. That would be 3 separate forward passes, not one.
+
+Maybe the simplest solution is to split heads, but ensure that the number of heads per chunk is exactly 16 (which is n_heads/2). For L=3, 3* (16/2)=24 <=32, so fused. For L=4, 4*8=32, so 16 heads works. For L=5, 5*8=40 >32, so need smaller. Hmm.
+
+Wait we can choose chunk_heads = 16 for all L=3..8? Let's check:
+L=3, 3*(16/2)=24 <=32 good
+L=4, 4*8=32 good
+L=5, 5*8=40 >32 bad
+L=6, 6*8=48 >32 bad
+L=7, 7*8=56 >32 bad
+L=8, 8*8=64 >32 bad
+
+So 16 heads only works for L<=4.
+
+Maybe we need dynamic chunk size.
+
+Another idea: We can split the query heads into 8 heads per chunk (n_heads/4). Then ratio = 8/2=4. L*4 <=32 => L<=8. Perfect! So chunk_heads=8 works for all L up to 8. 8 is multiple of 2. So we can just split into 8-head chunks for all 2-8 token passes. That would always hit fused kernel. And it's a fixed split, so no dynamic calculation needed. That might be more stable.
+
+Let's try chunk_heads=8. For n_heads=32, that's 4 chunks. Each chunk has 8 heads. Ratio = 8/2=4. L*4 <=32 for L<=8. Good.
+
+That should be mathematically identical.
+
+Let's implement with fixed chunk_heads=8 for L in 2..8. That might avoid the dynamic calculation issues.
+
+Also, we should ensure we only split when needed? Could split always for L in 2..8, it's fine.
+
+Let's try that.
+
+Also, we need to ensure we don't split for L=1 (one-token decoding must stay bit-identical). Good.
+
+Let's implement variant with chunk_heads=8.
+
+Also, we should ensure we don't split for L=2? L=2 with 32 heads gives product 32, so fused already. Splitting into 8 heads still gives same result, but might introduce tiny rounding differences? Might be okay, but to be safe, we could only split when needed (product >32). For L=2, product=32, so no need. For L=3, product=48 >32, need split.
+
+Let's implement dynamic but with fixed chunk_heads=8 for simplicity.
+
+Also, we need to ensure we handle the case where chunk_heads > n_heads? No.
+
+Let's try chunk_heads=8.
+
+Implementation:
+
+if cache is not None and 2 <= L <= 8:
+    n_heads = self.n_heads
+    chunk_heads = 8
+    if L * (chunk_heads // n_kv) <= 32:
+        # split
+        ...
+    else:
+        # fallback
+
+But for L=5, chunk_heads=8 gives product 5*4=20 <=32, good.
+
+So chunk_heads=8 works for all L<=8.
+
+Let's implement.
+
+Also, we need to ensure we don't change behavior for L=1.
+
+Let's produce final file.
+
+<|eom|><|start|>assistant to=user<|message|>```python
+"""v1_head_split_8 — split query heads into 8-head chunks for short decoding passes."""
+
+NAME = "v1_head_split_8"
+EXACT = True
+DESCRIPTION = "Split query heads into 8-head chunks for 2-8 token decoding passes to satisfy fused SDPA condition."
+
+def apply():
+    import mlx_lm.models.muse_glimmer as mg
+    from mlx_lm.models.base import scaled_dot_product_attention
+    import mlx.core as mx
+
+    _orig_call = mg.Attention.__call__
+
+    def _patched_call(self, x: mx.array, mask=None, cache=None) -> mx.array:
+        B, L, _ = x.shape
+
+        q = self.q_proj(x).reshape(B, L, self.n_heads, self.head_dim)
+        k = self.k_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).reshape(B, L, self.n_kv_heads, self.head_dim)
+
+        q = mx.fast.rms_norm(q, None, self.eps) * self.qk_scale_factor
+        k = mx.fast.rms_norm(k, None, self.eps)
+
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
+
+        if self.use_rope:
+            offset = cache.offset if cache is not None else 0
+            q = self.rope(q, offset=offset)
+            k = self.rope(k, offset=offset)
+
+        if cache is not None:
+            k, v = cache.update_and_fetch(k, v)
+
+        # Only modify short decoding passes; keep 1-token and prompt processing bit-identical
+        if cache is not None and 2 <= L <= 8:
+            n_heads = self.n_heads
+            n_kv = self.n_kv_heads
+            # 8-head chunks give ratio 8/2=4, so L*4 <=32 for L<=8 -> fused kernel
+            chunk_heads = 8
+            # ensure multiple of n_kv and divides n_heads
+            if chunk_heads % n_kv != 0:
+                chunk_heads = (chunk_heads // n_kv) * n_kv
+            if chunk_heads > n_heads:
+                chunk_heads = n_heads
+
+            # use split only when it helps reach fused condition
+            if L * (n_heads // n_kv) > 32 and L * (chunk_heads // n_kv) <= 32:
+                outs = []
+                for start in range(0, n_heads, chunk_heads):
+                    end = start + chunk_heads
+                    if end > n_heads:
+                        end = n_heads
+                    q_chunk = q[:, start:end, :, :]
+                    out_chunk = scaled_dot_product_attention(q_chunk, k, v, cache=cache, scale=self.scale, mask=mask)
+                    outs.append(out_chunk)
+                out = mx.concatenate(outs, axis=1)
+            else:
+                out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+        else:
+            out = scaled_dot_product_attention(q, k, v, cache=cache, scale=self.scale, mask=mask)
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        out = out * mx.sigmoid(self.gate_proj(x))
+        return self.o_proj(out)
+
+    mg.Attention.__call__ = _patched_call
+
+
+def post_load(model):
+    pass
+```
