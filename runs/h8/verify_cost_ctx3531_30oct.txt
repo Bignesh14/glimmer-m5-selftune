@@ -1,0 +1,6 @@
+kernel: stock MLX | context: 3531 tokens (cache offset 3531)
+L= 1 (K= 0): median   39.48 ms per pass   = 1.00x a 1-token pass   (spread 39.36-39.95 ms)
+L= 2 (K= 1): median   42.25 ms per pass   = 1.07x a 1-token pass   (spread 42.21-42.32 ms)
+L= 3 (K= 2): median   49.27 ms per pass   = 1.25x a 1-token pass   (spread 49.18-49.31 ms)
+L= 4 (K= 3): median   52.09 ms per pass   = 1.32x a 1-token pass   (spread 52.03-52.13 ms)
+final cache offset 3566 | peak memory 16.49 GB

@@ -3,6 +3,11 @@
   python bench/verify_cost.py                 # stock MLX
   python bench/verify_cost.py choose          # every 4-bit matmul routed through bench/kernels/choose.py
   python bench/verify_cost.py --lengths 1,2,3,4,5,9,17     # other pass lengths (default 1,5,9,17)
+  python bench/verify_cost.py --lengths 1,2,3 --context "<recorded prompt id>"   # long context
+
+--context (30 Oct): use a recorded self-tuning prompt (bench/prompts_index.py) as the context
+instead of the 1K test prompt. Past 2048 tokens mlx_lm's trim is invalid for the sliding-window
+layers, so the cache is rolled back with lookup_decode.rewind (exact, see that file).
 
 Prompt-lookup decoding replaces "one pass per token" with "one pass that checks 1 + K guessed
 tokens". Its real speedup = (tokens per pass, from lookup_sim.py) / (cost of a (1+K)-token pass
@@ -59,6 +64,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("kernel", nargs="?", default=None)
     ap.add_argument("--lengths", default="1,5,9,17")
+    ap.add_argument("--context", default=None, help="recorded prompt id (bench/prompts_index.py)")
     args = ap.parse_args()
     kname = args.kernel
     lengths = [int(v) for v in args.lengths.split(",")]
@@ -67,16 +73,32 @@ def main():
     if kname:
         patch(kname)
     model, tok = load(str(C.MODEL_DIR))
-    ids = C.render_ids(tok._tokenizer, C.user_messages()["p1024"])
+    if args.context:
+        from prompts_index import get_prompt
+        _, ids = get_prompt(tok._tokenizer, C, args.context)
+    else:
+        ids = C.render_ids(tok._tokenizer, C.user_messages()["p1024"])
+    from lookup_decode import PREFILL_STEP, rewind
     cache = make_prompt_cache(model)
-    mx.eval(model(mx.array(ids)[None], cache=cache))
-    mx.eval([c.state for c in cache])
+    for i in range(0, len(ids), PREFILL_STEP):
+        model(mx.array(ids[i:i + PREFILL_STEP])[None], cache=cache)
+        mx.eval([c.state for c in cache])
+
+    def roll_back(n):
+        """Undo the pass just timed. Multi-token passes: lookup_decode.rewind (exact past the
+        window). One-token passes: mlx_lm trim while below the window; past it, a one-token pass
+        cannot be undone (in-place ring buffer), so the context simply grows by 1 token per pass
+        (35 tokens over the measurement, negligible next to the context)."""
+        if n > 1:
+            rewind(cache, n)
+        elif cache[0].offset <= 2048:
+            if trim_prompt_cache(cache, n) != n:
+                raise SystemExit("ABORT: cache could not be rolled back")
     print(f"kernel: {kname or 'stock MLX'} | context: {len(ids)} tokens (cache offset {cache[0].offset})")
     if kname:
         before = ROUTED[0]
         mx.eval(model(mx.array(ids[:9])[None], cache=cache))
-        if trim_prompt_cache(cache, 9) != 9:
-            raise SystemExit("ABORT: cache could not be rolled back")
+        roll_back(9)
         if ROUTED[0] == before:
             raise SystemExit("ABORT: patch never ran - no matmul went through the candidate")
         print(f"patch active: {ROUTED[0] - before} quantized matmuls routed per forward pass")
@@ -88,15 +110,14 @@ def main():
             t0 = time.perf_counter()
             mx.eval(model(x, cache=cache))
             dt = time.perf_counter() - t0
-            if trim_prompt_cache(cache, L) != L:
-                raise SystemExit("ABORT: cache could not be rolled back")
+            roll_back(L)
             if i >= 5:
                 times.append(dt)
         med = st.median(times) * 1000
         base = base or med
         print(f"L={L:2d} (K={L - 1:2d}): median {med:7.2f} ms per pass   = {med / base:4.2f}x a 1-token pass   "
               f"(spread {min(times) * 1000:.2f}-{max(times) * 1000:.2f} ms)")
-    print(f"peak memory {mx.get_peak_memory() / 1e9:.2f} GB")
+    print(f"final cache offset {cache[0].offset} | peak memory {mx.get_peak_memory() / 1e9:.2f} GB")
 
 
 if __name__ == "__main__":
