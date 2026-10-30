@@ -1,0 +1,6 @@
+variant v2_h9_split_attn (fbb17b54a0c5) | kernel: stock MLX | context: 13759 tokens (cache offset 13759)
+L= 1 (K= 0): median   40.27 ms per pass   = 1.00x a 1-token pass   (spread 40.09-40.41 ms)
+L= 2 (K= 1): median   43.74 ms per pass   = 1.09x a 1-token pass   (spread 43.66-43.82 ms)
+L= 3 (K= 2): median   48.70 ms per pass   = 1.21x a 1-token pass   (spread 48.65-48.76 ms)
+L= 4 (K= 3): median   52.33 ms per pass   = 1.30x a 1-token pass   (spread 52.29-52.39 ms)
+final cache offset 13794 | peak memory 16.70 GB

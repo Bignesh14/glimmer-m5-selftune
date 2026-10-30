@@ -1,6 +1,7 @@
 """h8_sweep.py — how much does H8 gain on EVERY recorded self-tuning prompt? (breadth, not a win test)
 
   PYTHONUNBUFFERED=1 python bench/h8_sweep.py | tee runs/h8/sweep_<date>.txt
+  python bench/h8_sweep.py --variant v2_h9_split_attn     # model-code variant applied to BOTH arms
 
 The formal races (ab.py, fresh process per run, 6 pairs) already proved H8 is faster on three
 prompts. This sweep measures how the gain VARIES: one process, model loaded once, and for each
@@ -51,16 +52,23 @@ def run_h8(model, ids):
 
 
 def main():
+    import argparse
     import common as C
     from mlx_lm import load
     from prompts_index import recorded_prompts
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--variant", default="v0_original")
+    a = ap.parse_args()
     C.guard()
+    vmod, vsha = C.load_variant(a.variant)
+    vmod.apply()
     model, tok = load(str(C.MODEL_DIR))
+    vmod.post_load(model)
     hf = tok._tokenizer
     eos = set(tok.eos_token_ids)
     cases = [("code task (decode case)", C.render_ids(hf, C.CODE_TASK))]
     cases += [(p["id"], p["ids"]) for p in recorded_prompts(hf, C) if p["gen_tokens"] >= MIN_ANSWER]
-    print(f"{C.versions()} | {C.MODEL_DIR.name} (4-bit) | git {C.git_head()} | {len(cases)} prompts | "
+    print(f"{C.versions()} | {C.MODEL_DIR.name} (4-bit) | variant {a.variant} ({vsha}) | git {C.git_head()} | {len(cases)} prompts | "
           f"{N} tokens | order normal, H8, H8, normal", flush=True)
     run_normal(model, cases[0][1][:64])                      # warm-up, not recorded
     rows = []
@@ -88,8 +96,8 @@ def main():
     clean = [r["gain_pct"] for r in self_rows if r["first_eos"] < 0]
     if clean:
         print(f"  of which never reach end-of-turn within {N} tokens ({len(clean)}): median {st.median(clean):+.2f}%")
-    out = C.ROOT / "runs" / "h8" / f"sweep_{time.strftime('%Y%m%d-%H%M%S')}.json"
-    C.save_json(out, {"time": C.now(), "versions": C.versions(), "git": C.git_head(), "tokens": N, "rows": rows})
+    out = C.ROOT / "runs" / "h8" / f"sweep_{a.variant}_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    C.save_json(out, {"time": C.now(), "variant": a.variant, "variant_sha": vsha, "versions": C.versions(), "git": C.git_head(), "tokens": N, "rows": rows})
     print(f"saved {out.relative_to(C.ROOT)}")
 
 

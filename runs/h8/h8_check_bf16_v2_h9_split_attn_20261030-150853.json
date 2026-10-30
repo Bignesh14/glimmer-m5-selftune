@@ -1,0 +1,26 @@
+{
+  "time": "2026-10-30 15:08:53",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "mode": "bf16",
+  "variant": "v2_h9_split_attn",
+  "variant_sha": "fbb17b54a0c5",
+  "tie_tol": 0.125,
+  "k": 2,
+  "n_min": 2,
+  "results": [
+    {
+      "case": "selftune ium_p2_20261028-072922#8",
+      "prompt_tokens": 13759,
+      "tokens": 512,
+      "wrong": 0,
+      "ties": 3,
+      "worst_margin": 0.125,
+      "first_wrongs": [],
+      "golden_first_diff": null,
+      "passes": 414,
+      "tok_per_pass": 1.2367149758454106,
+      "drafted_share": 0.32608695652173914,
+      "accept_rate": 0.362962962962963
+    }
+  ]
+}

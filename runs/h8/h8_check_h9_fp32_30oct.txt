@@ -1,0 +1,4 @@
+mlx 0.32.4 / mlx_lm 0.32.2 | model Muse-Glimmer-30B-4bit (4-bit) | weights 19414804113 bytes | MLX_ENABLE_TF32=0 | mode fp32 | K=2 n_min=2 | tie tolerance 0.125 nats | variant v2_h9_split_attn (fbb17b54a0c5) | git 6c7b00b
+selftune ium_p2_20261028-072922#8 prompt 13759 | 0 wrong, 0 near-ties (worst 0.000 nats) | vs golden: n/a | 1.22 tok/pass, accepted 35% | H8 5.5 tok/s incl. prefill
+saved runs/h8/h8_check_fp32_v2_h9_split_attn_20261030-151205.json
+VERDICT: PASS (0 wrong tokens)

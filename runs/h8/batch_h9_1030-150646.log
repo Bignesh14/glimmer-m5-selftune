@@ -1,0 +1,41 @@
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+chat   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+code   first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p1024  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+p4096  first_mismatch=  -1 match=1.0000 bitexact=True maxdiff_all=0 maxdiff_top20=0
+VERDICT: PASS (bit-exact)
+mlx 0.32.4 / mlx_lm 0.32.2 | model Muse-Glimmer-30B-4bit (4-bit) | weights 19414804113 bytes | MLX_ENABLE_TF32=unset (default 1) | mode bf16 | K=2 n_min=2 | tie tolerance 0.125 nats | variant v2_h9_split_attn (fbb17b54a0c5) | git 6c7b00b
+selftune ium_p2_20261028-072922#8 prompt 13759 | 0 wrong, 3 near-ties (worst 0.125 nats) | vs golden: n/a | 1.24 tok/pass, accepted 36% | H8 14.6 tok/s incl. prefill
+saved runs/h8/h8_check_bf16_v2_h9_split_attn_20261030-150853.json
+VERDICT: PASS (0 wrong tokens)
+mlx 0.32.4 / mlx_lm 0.32.2 | model Muse-Glimmer-30B-4bit (4-bit) | weights 19414804113 bytes | MLX_ENABLE_TF32=0 | mode fp32 | K=2 n_min=2 | tie tolerance 0.125 nats | variant v2_h9_split_attn (fbb17b54a0c5) | git 6c7b00b
+selftune ium_p2_20261028-072922#8 prompt 13759 | 0 wrong, 0 near-ties (worst 0.000 nats) | vs golden: n/a | 1.22 tok/pass, accepted 35% | H8 5.5 tok/s incl. prefill
+saved runs/h8/h8_check_fp32_v2_h9_split_attn_20261030-151205.json
+VERDICT: PASS (0 wrong tokens)
+mlx 0.32.4 / mlx_lm 0.32.2 | Muse-Glimmer-30B-4bit (4-bit) | variant v2_h9_split_attn (fbb17b54a0c5) | git 6c7b00b | 20 prompts | 800 tokens | order normal, H8, H8, normal
+prompt                                     size   normal       H8    gain tok/pass accept   eos  same
+code task (decode case)                      73   26.567   31.073 +16.96%    1.246  0.474  none   518
+guided_high_20261028-013335#1              3531   25.947   29.483 +13.63%    1.244  0.367  none   354
+guided_high_20261028-013335#2              3577   25.945   28.566 +10.10%    1.207  0.310  none    98
+guided_high_20261028-013335#3              3623   25.934   28.542 +10.06%    1.203  0.317  none   193
+guided_low_20261028-015726#1               3531   25.948   28.948 +11.56%    1.218  0.345  none   251
+guided_medium_p2_20261028-072922#1         3813   25.931   27.338  +5.43%    1.148  0.246  none    69
+guided_medium_p2_20261028-072922#2         5743   25.850   30.799 +19.14%    1.318  0.419  none    70
+guided_medium_p2_20261028-072922#3         7091   25.800   29.971 +16.17%    1.292  0.362  none   247
+guided_medium_p2_20261028-072922#4         8785   25.607   27.821  +8.65%    1.194  0.303  none   129
+guided_medium_p2_20261028-072922#5        10281   25.559   30.111 +17.81%    1.303  0.433  none    85
+guided_medium_p2_20261028-072922#6        11871   25.479   28.490 +11.82%    1.240  0.339  none    70
+guided_medium_p2_20261028-072922#7        12747   25.438   28.691 +12.79%    1.246  0.372  none    91
+guided_medium_p2_20261028-072922#8        13759   25.399   27.380  +7.80%    1.196  0.282  none   355
+unguided_high_20261028-011603#1            3322   25.949   30.601 +17.93%    1.290  0.435  none    50
+unguided_high_20261028-011603#2            3368   25.952   30.219 +16.44%    1.274  0.418  none   205
+unguided_high_20261028-011603#3            4113   25.920   29.366 +13.29%    1.240  0.367  none    64
+unguided_low_20261028-004423#1             3322   25.951   29.510 +13.71%    1.246  0.360  none   353
+unguided_medium_p2_20261028-072259#1       3591   25.941   27.890  +7.51%    1.170  0.286  none   105
+unguided_medium_p2_20261028-072259#2       4514   25.903   28.965 +11.82%    1.240  0.303  none    88
+unguided_medium_p2_20261028-072259#3       5765   25.854   31.291 +21.03%    1.342  0.434  none   224
+
+self-tuning prompts (19): gain median +12.79%, range +5.43 .. +21.03%
+  of which never reach end-of-turn within 800 tokens (19): median +12.79%
+saved runs/h8/sweep_v2_h9_split_attn_20261030-160101.json
+BATCH DONE
