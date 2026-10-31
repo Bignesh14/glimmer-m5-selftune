@@ -1,0 +1,58 @@
+session 20261031-045617: A=v0_original  B=v2_h9_split_attn@lookup  plan=h8  selftune=guided_medium_p2_20261028-072922#7  pairs=6 (+1 warm-up pair)
+--- pair 0 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.570 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 12747 tok, gen 800 @ 25.452 tok/s (steady state), peak 16.70 GB
+--- pair 0 slot B: v2_h9_split_attn@lookup
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v2_h9_split_attn@lookup decode: prompt 73 tok, gen 800 @ 31.104 tok/s (steady state), peak 15.80 GB tok_per_pass=1.246 accept=0.474 decoder_sha=13b2dc7870ac
+v2_h9_split_attn@lookup selftune: prompt 12747 tok, gen 800 @ 28.677 tok/s (steady state), peak 16.70 GB tok_per_pass=1.246 accept=0.372 decoder_sha=13b2dc7870ac
+--- pair 1 slot B: v2_h9_split_attn@lookup
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v2_h9_split_attn@lookup decode: prompt 73 tok, gen 800 @ 31.099 tok/s (steady state), peak 15.80 GB tok_per_pass=1.246 accept=0.474 decoder_sha=13b2dc7870ac
+v2_h9_split_attn@lookup selftune: prompt 12747 tok, gen 800 @ 28.685 tok/s (steady state), peak 16.70 GB tok_per_pass=1.246 accept=0.372 decoder_sha=13b2dc7870ac
+--- pair 1 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.577 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 12747 tok, gen 800 @ 25.435 tok/s (steady state), peak 16.70 GB
+--- pair 2 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.561 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 12747 tok, gen 800 @ 25.437 tok/s (steady state), peak 16.70 GB
+--- pair 2 slot B: v2_h9_split_attn@lookup
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v2_h9_split_attn@lookup decode: prompt 73 tok, gen 800 @ 31.093 tok/s (steady state), peak 15.80 GB tok_per_pass=1.246 accept=0.474 decoder_sha=13b2dc7870ac
+v2_h9_split_attn@lookup selftune: prompt 12747 tok, gen 800 @ 28.670 tok/s (steady state), peak 16.70 GB tok_per_pass=1.246 accept=0.372 decoder_sha=13b2dc7870ac
+--- pair 3 slot B: v2_h9_split_attn@lookup
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v2_h9_split_attn@lookup decode: prompt 73 tok, gen 800 @ 31.115 tok/s (steady state), peak 15.80 GB tok_per_pass=1.246 accept=0.474 decoder_sha=13b2dc7870ac
+v2_h9_split_attn@lookup selftune: prompt 12747 tok, gen 800 @ 28.671 tok/s (steady state), peak 16.70 GB tok_per_pass=1.246 accept=0.372 decoder_sha=13b2dc7870ac
+--- pair 3 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.569 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 12747 tok, gen 800 @ 25.419 tok/s (steady state), peak 16.70 GB
+--- pair 4 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.561 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 12747 tok, gen 800 @ 25.427 tok/s (steady state), peak 16.70 GB
+--- pair 4 slot B: v2_h9_split_attn@lookup
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v2_h9_split_attn@lookup decode: prompt 73 tok, gen 800 @ 31.124 tok/s (steady state), peak 15.80 GB tok_per_pass=1.246 accept=0.474 decoder_sha=13b2dc7870ac
+v2_h9_split_attn@lookup selftune: prompt 12747 tok, gen 800 @ 28.691 tok/s (steady state), peak 16.70 GB tok_per_pass=1.246 accept=0.372 decoder_sha=13b2dc7870ac
+--- pair 5 slot B: v2_h9_split_attn@lookup
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v2_h9_split_attn@lookup decode: prompt 73 tok, gen 800 @ 31.106 tok/s (steady state), peak 15.80 GB tok_per_pass=1.246 accept=0.474 decoder_sha=13b2dc7870ac
+v2_h9_split_attn@lookup selftune: prompt 12747 tok, gen 800 @ 28.672 tok/s (steady state), peak 16.70 GB tok_per_pass=1.246 accept=0.372 decoder_sha=13b2dc7870ac
+--- pair 5 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.570 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 12747 tok, gen 800 @ 25.444 tok/s (steady state), peak 16.70 GB
+--- pair 6 slot A: v0_original
+variant v0_original (250a2bf3df3b) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v0_original decode: prompt 73 tok, gen 800 @ 26.573 tok/s (steady state), peak 15.80 GB
+v0_original selftune: prompt 12747 tok, gen 800 @ 25.435 tok/s (steady state), peak 16.70 GB
+--- pair 6 slot B: v2_h9_split_attn@lookup
+variant v2_h9_split_attn (fbb17b54a0c5) | mlx 0.32.4 / mlx_lm 0.32.2 | lowpowermode=0 | weights 19414804113 bytes
+v2_h9_split_attn@lookup decode: prompt 73 tok, gen 800 @ 31.106 tok/s (steady state), peak 15.80 GB tok_per_pass=1.246 accept=0.474 decoder_sha=13b2dc7870ac
+v2_h9_split_attn@lookup selftune: prompt 12747 tok, gen 800 @ 28.657 tok/s (steady state), peak 16.70 GB tok_per_pass=1.246 accept=0.372 decoder_sha=13b2dc7870ac
+done. Analyse with:  python bench/compare.py --session 20261031-045617
