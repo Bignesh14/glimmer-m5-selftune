@@ -1,0 +1,8 @@
+Write a Python class for a 2D vector with add, sub, mul, dot, norm and __repr__, then unit tests for every method.
+Refactor this into a function and add type hints: for i in range(10): print(i*i)
+Write a JSON schema for a library book with title, authors, ISBN, year and tags, then one example.
+Write a SQL query that returns the top 5 customers by total order value in 2025, with table definitions for customers and orders.
+Explain how a hash map works to a beginner.
+Write a short story about a lighthouse keeper.
+Write a polite email to a professor asking for a meeting next week to discuss a research project.
+A train travels 120 km in 1.5 hours and then 80 km in 1 hour. What is its average speed? Explain step by step.

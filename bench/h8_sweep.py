@@ -2,6 +2,9 @@
 
   PYTHONUNBUFFERED=1 python bench/h8_sweep.py | tee runs/h8/sweep_<date>.txt
   python bench/h8_sweep.py --variant v2_h9_split_attn     # model-code variant applied to BOTH arms
+  python bench/h8_sweep.py --variant v2_h9_split_attn --prompts-file bench/general_prompts.txt
+      # 1 Nov: everyday prompts (one per line) instead of the recorded self-tuning prompts; both
+      # decoders stop at the end of the answer (at most 800 tokens), speed over the tokens produced
 
 The formal races (ab.py, fresh process per run, 6 pairs) already proved H8 is faster on three
 prompts. This sweep measures how the gain VARIES: one process, model loaded once, and for each
@@ -31,7 +34,7 @@ N = 800
 MIN_ANSWER = 800
 
 
-def run_normal(model, ids):
+def run_normal(model, ids, stop=()):
     sampler = make_sampler(temp=0.0)
     toks = []
     with wired_limit(model, [generation_stream]):
@@ -39,15 +42,17 @@ def run_normal(model, ids):
             toks.append(int(t))
             if i == 0:
                 t_first = time.perf_counter()
+            if int(t) in stop:
+                break
         t_end = time.perf_counter()
     return toks, (len(toks) - 1) / (t_end - t_first), None
 
 
-def run_h8(model, ids):
+def run_h8(model, ids, stop=()):
     from lookup_decode import lookup_generate
     tm = {}
     with wired_limit(model, [generation_stream]), mx.stream(generation_stream):
-        toks, stt = lookup_generate(model, ids, N, k=2, n_min=2, timing=tm)
+        toks, stt = lookup_generate(model, ids, N, k=2, n_min=2, eos_ids=stop, timing=tm)
     return toks, (len(toks) - tm["first_pass_tokens"]) / (tm["t_end"] - tm["t_first"]), stt
 
 
@@ -58,6 +63,7 @@ def main():
     from prompts_index import recorded_prompts
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", default="v0_original")
+    ap.add_argument("--prompts-file", default=None, help="one user prompt per line (instead of recorded prompts)")
     a = ap.parse_args()
     C.guard()
     vmod, vsha = C.load_variant(a.variant)
@@ -67,7 +73,11 @@ def main():
     hf = tok._tokenizer
     eos = set(tok.eos_token_ids)
     cases = [("code task (decode case)", C.render_ids(hf, C.CODE_TASK))]
-    cases += [(p["id"], p["ids"]) for p in recorded_prompts(hf, C) if p["gen_tokens"] >= MIN_ANSWER]
+    if a.prompts_file:
+        lines = [ln.strip() for ln in Path(a.prompts_file).read_text().splitlines() if ln.strip()]
+        cases += [(ln, C.render_ids(hf, ln)) for ln in lines]
+    else:
+        cases += [(p["id"], p["ids"]) for p in recorded_prompts(hf, C) if p["gen_tokens"] >= MIN_ANSWER]
     print(f"{C.versions()} | {C.MODEL_DIR.name} (4-bit) | variant {a.variant} ({vsha}) | git {C.git_head()} | {len(cases)} prompts | "
           f"{N} tokens | order normal, H8, H8, normal", flush=True)
     run_normal(model, cases[0][1][:64])                      # warm-up, not recorded
@@ -75,10 +85,11 @@ def main():
     print(f"{'prompt':40s} {'size':>6s} {'normal':>8s} {'H8':>8s} {'gain':>7s} {'tok/pass':>8s} "
           f"{'accept':>6s} {'eos':>5s} {'same':>5s}", flush=True)
     for name, ids in cases:
-        n1, s_n1, _ = run_normal(model, ids)
-        h1, s_h1, stt = run_h8(model, ids)
-        _, s_h2, _ = run_h8(model, ids)
-        _, s_n2, _ = run_normal(model, ids)
+        stop = eos if a.prompts_file else ()       # everyday prompts: stop at the end of the answer
+        n1, s_n1, _ = run_normal(model, ids, stop)
+        h1, s_h1, stt = run_h8(model, ids, stop)
+        _, s_h2, _ = run_h8(model, ids, stop)
+        _, s_n2, _ = run_normal(model, ids, stop)
         normal, h8 = st.median([s_n1, s_n2]), st.median([s_h1, s_h2])
         gain = 100 * (h8 / normal - 1)
         e = next((i for i, t in enumerate(n1) if t in eos), -1)
@@ -92,11 +103,11 @@ def main():
         mx.clear_cache()
     self_rows = [r for r in rows[1:]]
     g = [r["gain_pct"] for r in self_rows]
-    print(f"\nself-tuning prompts ({len(g)}): gain median {st.median(g):+.2f}%, range {min(g):+.2f} .. {max(g):+.2f}%")
+    print(f"\n{'your prompts' if a.prompts_file else 'self-tuning prompts'} ({len(g)}): gain median {st.median(g):+.2f}%, range {min(g):+.2f} .. {max(g):+.2f}%")
     clean = [r["gain_pct"] for r in self_rows if r["first_eos"] < 0]
     if clean:
         print(f"  of which never reach end-of-turn within {N} tokens ({len(clean)}): median {st.median(clean):+.2f}%")
-    out = C.ROOT / "runs" / "h8" / f"sweep_{a.variant}_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    out = C.ROOT / "runs" / "h8" / f"sweep_{a.variant}{'_general' if a.prompts_file else ''}_{time.strftime('%Y%m%d-%H%M%S')}.json"
     C.save_json(out, {"time": C.now(), "variant": a.variant, "variant_sha": vsha, "versions": C.versions(), "git": C.git_head(), "tokens": N, "rows": rows})
     print(f"saved {out.relative_to(C.ROOT)}")
 
