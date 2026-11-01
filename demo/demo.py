@@ -128,7 +128,7 @@ def speed(r):
     return (len(r["tokens"]) - r["first_pass_tokens"]) / (r["t_end"] - r["t_first"])
 
 
-PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Glimmer: normal vs H8+H9</title>
+PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>__TABTITLE__</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{--bg:#0f1115;--panel:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--a:#7aa2f7;--b:#9ece6a;--line:#262b36}
@@ -228,7 +228,7 @@ def main():
     out = HERE / "out" / f"replay_{time.strftime('%Y%m%d-%H%M%S')}.html"
     out.parent.mkdir(exist_ok=True)
     title = ("Muse Glimmer 30B (4-bit) on this Mac" if is_glimmer else f"{html.escape(model_name)} on this Mac")
-    out.write_text(PAGE.replace("__TITLE__", title).replace("__BNAME__", "H8 + H9" if is_glimmer else "H8").replace("__INFO__", info).replace("__FOOT__", foot)
+    out.write_text(PAGE.replace("__TABTITLE__", ("Glimmer: normal vs H8+H9" if is_glimmer else f"{html.escape(model_name)}: normal vs H8")).replace("__TITLE__", title).replace("__BNAME__", "H8 + H9" if is_glimmer else "H8").replace("__INFO__", info).replace("__FOOT__", foot)
                    .replace("__DATA__", json.dumps(data).replace("</", "<\\/")))
     print(f"\nreplay page: {out.relative_to(HERE.parent)}   (open it: open {out.relative_to(HERE.parent)})")
 
