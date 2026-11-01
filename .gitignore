@@ -11,3 +11,4 @@ HACKATHON_LOG.md
 .venv/
 runs/bench/golden/
 demo/out/
+data/

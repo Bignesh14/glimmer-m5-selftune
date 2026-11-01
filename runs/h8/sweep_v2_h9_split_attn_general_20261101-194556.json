@@ -1,0 +1,163 @@
+{
+  "time": "2026-11-01 19:45:56",
+  "variant": "v2_h9_split_attn",
+  "variant_sha": "fbb17b54a0c5",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "git": "ec80526",
+  "tokens": 800,
+  "rows": [
+    {
+      "prompt": "code task (decode case)",
+      "prompt_tokens": 73,
+      "normal_tps": [
+        26.56048220951825,
+        26.56428419968043
+      ],
+      "h8_tps": [
+        31.098161314136938,
+        31.106339042431433
+      ],
+      "gain_pct": 17.091339051605736,
+      "tok_per_pass": 1.2461059190031152,
+      "accept": 0.4744744744744745,
+      "first_eos": -1,
+      "first_diff": 518
+    },
+    {
+      "prompt": "Write a Python class for a 2D vector with add, sub, mul, dot, norm and __repr__, then unit tests for every method.",
+      "prompt_tokens": 87,
+      "normal_tps": [
+        26.561168188787356,
+        26.549509929396212
+      ],
+      "h8_tps": [
+        31.692176966603213,
+        31.687239044863116
+      ],
+      "gain_pct": 19.334601359132407,
+      "tok_per_pass": 1.2738853503184713,
+      "accept": 0.48314606741573035,
+      "first_eos": -1,
+      "first_diff": 106
+    },
+    {
+      "prompt": "Refactor this into a function and add type hints: for i in range(10): print(i*i)",
+      "prompt_tokens": 78,
+      "normal_tps": [
+        26.573110982769922,
+        26.5717418298557
+      ],
+      "h8_tps": [
+        32.06189740244861,
+        32.05408853710365
+      ],
+      "gain_pct": 20.643830110147988,
+      "tok_per_pass": 1.293381037567084,
+      "accept": 0.4530386740331492,
+      "first_eos": 765,
+      "first_diff": 120
+    },
+    {
+      "prompt": "Write a JSON schema for a library book with title, authors, ISBN, year and tags, then one example.",
+      "prompt_tokens": 79,
+      "normal_tps": [
+        26.562228535457045,
+        26.55927030002936
+      ],
+      "h8_tps": [
+        32.35678619946227,
+        32.35144951882039
+      ],
+      "gain_pct": 21.811765738537538,
+      "tok_per_pass": 1.3050570962479608,
+      "accept": 0.4857142857142857,
+      "first_eos": -1,
+      "first_diff": 496
+    },
+    {
+      "prompt": "Write a SQL query that returns the top 5 customers by total order value in 2025, with table definitions for customers and orders.",
+      "prompt_tokens": 84,
+      "normal_tps": [
+        26.564728004393185,
+        26.558879498507117
+      ],
+      "h8_tps": [
+        31.14640958038035,
+        31.14260219672894
+      ],
+      "gain_pct": 17.252977922684586,
+      "tok_per_pass": 1.2539184952978057,
+      "accept": 0.4263157894736842,
+      "first_eos": -1,
+      "first_diff": 369
+    },
+    {
+      "prompt": "Explain how a hash map works to a beginner.",
+      "prompt_tokens": 66,
+      "normal_tps": [
+        26.568657729836367,
+        26.568449011384843
+      ],
+      "h8_tps": [
+        27.25368461691044,
+        27.25313712304632
+      ],
+      "gain_pct": 2.5776996203539904,
+      "tok_per_pass": 1.0796221322537112,
+      "accept": 0.236,
+      "first_eos": -1,
+      "first_diff": 123
+    },
+    {
+      "prompt": "Write a short story about a lighthouse keeper.",
+      "prompt_tokens": 65,
+      "normal_tps": [
+        26.569934811919765,
+        26.55755761294902
+      ],
+      "h8_tps": [
+        27.331896833914744,
+        27.330308390911792
+      ],
+      "gain_pct": 2.888735624268546,
+      "tok_per_pass": 1.0796221322537112,
+      "accept": 0.2681818181818182,
+      "first_eos": -1,
+      "first_diff": 114
+    },
+    {
+      "prompt": "Write a polite email to a professor asking for a meeting next week to discuss a research project.",
+      "prompt_tokens": 75,
+      "normal_tps": [
+        26.57848263317136,
+        26.578074453427153
+      ],
+      "h8_tps": [
+        28.078281417148432,
+        28.075048356473044
+      ],
+      "gain_pct": 5.6376350374627515,
+      "tok_per_pass": 1.1131221719457014,
+      "accept": 0.3125,
+      "first_eos": 734,
+      "first_diff": 38
+    },
+    {
+      "prompt": "A train travels 120 km in 1.5 hours and then 80 km in 1 hour. What is its average speed? Explain step by step.",
+      "prompt_tokens": 89,
+      "normal_tps": [
+        26.571884792864402,
+        26.57789482188314
+      ],
+      "h8_tps": [
+        31.70623906239089,
+        31.702844856907532
+      ],
+      "gain_pct": 19.302628117961596,
+      "tok_per_pass": 1.2987012987012987,
+      "accept": 0.3458646616541353,
+      "first_eos": 740,
+      "first_diff": 288
+    }
+  ]
+}
