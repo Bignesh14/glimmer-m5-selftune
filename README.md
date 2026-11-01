@@ -109,15 +109,15 @@ with H9, reasoning low, up to 1024 new tokens, each prompt once with each decode
 order (`bench/spec_bench.py`; Spec-Bench data not redistributed, only question ids are saved). Speed-up of H8+H9 over
 normal decoding, Spec-Bench style (all tokens / all wall time, prompt processing included):
 
-| Task | Round 1 | Round 2 | Tokens per pass | Published PLD, RTX 3090, Vicuna-7B |
-|---|---|---|---|---|
-| Multi-turn conversation (MT-bench) | 1.067× | 1.068× | 1.14 | 1.64× |
-| Translation (WMT14 de-en) | **1.433×** | **1.432×** | 1.55 | 1.15× |
-| Summarization (CNN/DM) | 1.199× | 1.200× | 1.32 | 2.46× |
-| Question answering (Natural Questions) | 1.074× | 1.074× | 1.13 | 1.28× |
-| Maths (GSM8K) | 1.183× | 1.183× | 1.27 | 1.72× |
-| Retrieval-augmented generation | 1.200× | 1.200× | 1.33 | 1.71× |
-| **Overall** | **1.148×** | **1.148×** | 1.24 | 1.64× |
+| Task | Normal decoding (round 1) | H8+H9 (round 1) | Speed-up round 1 / round 2 | Tokens per pass | Published PLD, RTX 3090, Vicuna-7B |
+|---|---|---|---|---|---|
+| Multi-turn conversation (MT-bench) | 26.28 tok/s | 28.05 tok/s | 1.067× / 1.068× | 1.14 | 1.64× |
+| Translation (WMT14 de-en) | 25.76 | 36.92 | **1.433× / 1.432×** | 1.55 | 1.15× |
+| Summarization (CNN/DM) | 24.35 | 29.20 | 1.199× / 1.200× | 1.32 | 2.46× |
+| Question answering (Natural Questions) | 26.27 | 28.20 | 1.074× / 1.074× | 1.13 | 1.28× |
+| Maths (GSM8K) | 25.99 | 30.74 | 1.183× / 1.183× | 1.27 | 1.72× |
+| Retrieval-augmented generation | 24.93 | 29.93 | 1.200× / 1.200× | 1.33 | 1.71× |
+| **Overall** | **25.65** | **29.44** | **1.148× / 1.148×** | 1.24 | 1.64× |
 
 Every task is faster and the two rounds agree within 0.001. The published numbers are a different model, GPU and
 setting, so they are context, not a head-to-head: our decoder guesses at most 2 tokens per pass (the setting the cost

@@ -1,0 +1,16 @@
+runs/h8/specbench_r1_20261101-204615.csv
+  mt_bench        normal  26.28 tok/s   H8+H9  28.05 tok/s   1.067x
+  translation     normal  25.76 tok/s   H8+H9  36.92 tok/s   1.433x
+  summarization   normal  24.35 tok/s   H8+H9  29.20 tok/s   1.199x
+  qa              normal  26.27 tok/s   H8+H9  28.20 tok/s   1.074x
+  math_reasoning  normal  25.99 tok/s   H8+H9  30.74 tok/s   1.183x
+  rag             normal  24.93 tok/s   H8+H9  29.93 tok/s   1.200x
+  overall         normal  25.65 tok/s   H8+H9  29.44 tok/s   1.148x
+runs/h8/specbench_r2_20261101-211444.csv
+  mt_bench        normal  26.28 tok/s   H8+H9  28.07 tok/s   1.068x
+  translation     normal  25.77 tok/s   H8+H9  36.92 tok/s   1.432x
+  summarization   normal  24.35 tok/s   H8+H9  29.21 tok/s   1.200x
+  qa              normal  26.27 tok/s   H8+H9  28.20 tok/s   1.074x
+  math_reasoning  normal  25.99 tok/s   H8+H9  30.75 tok/s   1.183x
+  rag             normal  24.94 tok/s   H8+H9  29.94 tok/s   1.200x
+  overall         normal  25.66 tok/s   H8+H9  29.45 tok/s   1.148x
