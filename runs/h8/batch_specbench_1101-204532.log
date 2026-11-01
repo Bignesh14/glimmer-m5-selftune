@@ -1,0 +1,145 @@
+mlx 0.32.4 / mlx_lm 0.32.2 | Muse-Glimmer-30B-4bit (4-bit) | variant v2_h9_split_attn (fbb17b54a0c5) | git 10f0e7e | Spec-Bench subset 60 prompts | round 1 | max 1024 new tokens | reasoning low
+[ 1/60] mt_bench       q81   prompt    78 | normal  26.35 tok/s | H8+H9  26.22 tok/s | 1.04 tok/pass
+[ 2/60] mt_bench       q89   prompt    97 | normal  26.24 tok/s | H8+H9  28.35 tok/s | 1.15 tok/pass
+[ 3/60] mt_bench       q97   prompt   129 | normal  26.35 tok/s | H8+H9  27.22 tok/s | 1.09 tok/pass
+[ 4/60] mt_bench       q105  prompt   257 | normal  26.17 tok/s | H8+H9  30.76 tok/s | 1.29 tok/pass
+[ 5/60] mt_bench       q113  prompt   121 | normal  26.17 tok/s | H8+H9  30.58 tok/s | 1.25 tok/pass
+[ 6/60] mt_bench       q121  prompt    82 | normal  26.35 tok/s | H8+H9  27.02 tok/s | 1.07 tok/pass
+[ 7/60] mt_bench       q129  prompt    88 | normal  26.35 tok/s | H8+H9  28.59 tok/s | 1.15 tok/pass
+[ 8/60] mt_bench       q137  prompt   255 | normal  25.15 tok/s | H8+H9  27.95 tok/s | 1.19 tok/pass
+[ 9/60] mt_bench       q145  prompt   110 | normal  26.34 tok/s | H8+H9  29.46 tok/s | 1.19 tok/pass
+[10/60] mt_bench       q153  prompt    82 | normal  26.34 tok/s | H8+H9  26.93 tok/s | 1.07 tok/pass
+[11/60] translation    q161  prompt    81 | normal  25.73 tok/s | H8+H9  37.12 tok/s | 1.56 tok/pass
+[12/60] translation    q169  prompt    86 | normal  25.52 tok/s | H8+H9  38.07 tok/s | 1.61 tok/pass
+[13/60] translation    q177  prompt    90 | normal  25.67 tok/s | H8+H9  35.17 tok/s | 1.46 tok/pass
+[14/60] translation    q185  prompt    84 | normal  25.69 tok/s | H8+H9  36.73 tok/s | 1.54 tok/pass
+[15/60] translation    q193  prompt    75 | normal  26.01 tok/s | H8+H9  36.48 tok/s | 1.52 tok/pass
+[16/60] translation    q201  prompt    82 | normal  25.59 tok/s | H8+H9  35.19 tok/s | 1.48 tok/pass
+[17/60] translation    q209  prompt    77 | normal  25.56 tok/s | H8+H9  33.56 tok/s | 1.41 tok/pass
+[18/60] translation    q217  prompt    97 | normal  25.78 tok/s | H8+H9  38.88 tok/s | 1.64 tok/pass
+[19/60] translation    q225  prompt   121 | normal  25.91 tok/s | H8+H9  38.33 tok/s | 1.60 tok/pass
+[20/60] translation    q233  prompt    94 | normal  25.90 tok/s | H8+H9  38.77 tok/s | 1.63 tok/pass
+[21/60] summarization  q241  prompt   740 | normal  24.65 tok/s | H8+H9  30.61 tok/s | 1.35 tok/pass
+[22/60] summarization  q249  prompt   642 | normal  24.31 tok/s | H8+H9  30.69 tok/s | 1.39 tok/pass
+[23/60] summarization  q257  prompt   847 | normal  23.63 tok/s | H8+H9  30.09 tok/s | 1.41 tok/pass
+[24/60] summarization  q265  prompt   461 | normal  24.78 tok/s | H8+H9  31.07 tok/s | 1.37 tok/pass
+[25/60] summarization  q273  prompt  1339 | normal  23.98 tok/s | H8+H9  26.44 tok/s | 1.22 tok/pass
+[26/60] summarization  q281  prompt   718 | normal  24.20 tok/s | H8+H9  30.79 tok/s | 1.39 tok/pass
+[27/60] summarization  q289  prompt   591 | normal  24.62 tok/s | H8+H9  29.53 tok/s | 1.31 tok/pass
+[28/60] summarization  q297  prompt  1340 | normal  24.22 tok/s | H8+H9  26.42 tok/s | 1.23 tok/pass
+[29/60] summarization  q305  prompt   390 | normal  24.91 tok/s | H8+H9  29.46 tok/s | 1.29 tok/pass
+[30/60] summarization  q313  prompt   521 | normal  24.65 tok/s | H8+H9  31.21 tok/s | 1.39 tok/pass
+[31/60] qa             q321  prompt    65 | normal  26.31 tok/s | H8+H9  29.01 tok/s | 1.16 tok/pass
+[32/60] qa             q329  prompt    65 | normal  26.19 tok/s | H8+H9  26.82 tok/s | 1.07 tok/pass
+[33/60] qa             q337  prompt    72 | normal  26.24 tok/s | H8+H9  27.04 tok/s | 1.08 tok/pass
+[34/60] qa             q345  prompt    71 | normal  26.19 tok/s | H8+H9  28.20 tok/s | 1.13 tok/pass
+[35/60] qa             q353  prompt    67 | normal  26.35 tok/s | H8+H9  29.82 tok/s | 1.20 tok/pass
+[36/60] qa             q361  prompt    75 | normal  26.31 tok/s | H8+H9  30.50 tok/s | 1.23 tok/pass
+[37/60] qa             q369  prompt    68 | normal  26.18 tok/s | H8+H9  27.51 tok/s | 1.10 tok/pass
+[38/60] qa             q377  prompt    64 | normal  26.05 tok/s | H8+H9  28.47 tok/s | 1.14 tok/pass
+[39/60] qa             q385  prompt    66 | normal  26.22 tok/s | H8+H9  28.42 tok/s | 1.14 tok/pass
+[40/60] qa             q393  prompt    69 | normal  26.36 tok/s | H8+H9  26.37 tok/s | 1.04 tok/pass
+[41/60] math_reasoning q401  prompt   107 | normal  25.82 tok/s | H8+H9  30.93 tok/s | 1.28 tok/pass
+[42/60] math_reasoning q409  prompt   125 | normal  25.95 tok/s | H8+H9  34.12 tok/s | 1.43 tok/pass
+[43/60] math_reasoning q417  prompt    93 | normal  26.03 tok/s | H8+H9  29.94 tok/s | 1.22 tok/pass
+[44/60] math_reasoning q425  prompt   132 | normal  26.29 tok/s | H8+H9  29.81 tok/s | 1.22 tok/pass
+[45/60] math_reasoning q433  prompt   119 | normal  25.82 tok/s | H8+H9  32.53 tok/s | 1.37 tok/pass
+[46/60] math_reasoning q441  prompt    90 | normal  25.53 tok/s | H8+H9  30.64 tok/s | 1.28 tok/pass
+[47/60] math_reasoning q449  prompt    84 | normal  25.51 tok/s | H8+H9  31.36 tok/s | 1.32 tok/pass
+[48/60] math_reasoning q457  prompt   159 | normal  25.80 tok/s | H8+H9  30.38 tok/s | 1.25 tok/pass
+[49/60] math_reasoning q465  prompt    93 | normal  25.97 tok/s | H8+H9  30.66 tok/s | 1.27 tok/pass
+[50/60] math_reasoning q473  prompt   122 | normal  25.96 tok/s | H8+H9  31.82 tok/s | 1.31 tok/pass
+[51/60] rag            q481  prompt   680 | normal  25.34 tok/s | H8+H9  30.87 tok/s | 1.32 tok/pass
+[52/60] rag            q489  prompt   744 | normal  25.25 tok/s | H8+H9  31.55 tok/s | 1.37 tok/pass
+[53/60] rag            q497  prompt   720 | normal  25.30 tok/s | H8+H9  28.87 tok/s | 1.24 tok/pass
+[54/60] rag            q505  prompt   741 | normal  23.87 tok/s | H8+H9  31.88 tok/s | 1.52 tok/pass
+[55/60] rag            q513  prompt   735 | normal  25.57 tok/s | H8+H9  31.47 tok/s | 1.36 tok/pass
+[56/60] rag            q521  prompt   740 | normal  23.37 tok/s | H8+H9  27.58 tok/s | 1.36 tok/pass
+[57/60] rag            q529  prompt   760 | normal  24.15 tok/s | H8+H9  29.21 tok/s | 1.32 tok/pass
+[58/60] rag            q537  prompt   731 | normal  23.67 tok/s | H8+H9  27.26 tok/s | 1.24 tok/pass
+[59/60] rag            q545  prompt   807 | normal  24.82 tok/s | H8+H9  25.77 tok/s | 1.11 tok/pass
+[60/60] rag            q553  prompt   666 | normal  24.38 tok/s | H8+H9  34.98 tok/s | 1.62 tok/pass
+
+round 1: speedup of H8+H9 over normal decoding (Glimmer 30B, M5 Max)
+task              wall-time speedup  decode-only  tok/pass | PLD in Spec-Bench (3090)
+mt_bench                     1.067x       1.067x      1.14 | 1.64x
+translation                  1.433x       1.447x      1.55 | 1.15x
+summarization                1.199x       1.219x      1.32 | 2.46x
+qa                           1.074x       1.073x      1.13 | 1.28x
+math_reasoning               1.183x       1.182x      1.27 | 1.72x
+rag                          1.200x       1.217x      1.33 | 1.71x
+overall                      1.148x       1.152x      1.24 | 1.64x
+saved runs/h8/specbench_r1_20261101-204615.csv (+ .json)
+mlx 0.32.4 / mlx_lm 0.32.2 | Muse-Glimmer-30B-4bit (4-bit) | variant v2_h9_split_attn (fbb17b54a0c5) | git 10f0e7e | Spec-Bench subset 60 prompts | round 2 | max 1024 new tokens | reasoning low
+[ 1/60] mt_bench       q81   prompt    78 | normal  26.34 tok/s | H8+H9  26.23 tok/s | 1.04 tok/pass
+[ 2/60] mt_bench       q89   prompt    97 | normal  26.26 tok/s | H8+H9  28.66 tok/s | 1.15 tok/pass
+[ 3/60] mt_bench       q97   prompt   129 | normal  26.34 tok/s | H8+H9  27.23 tok/s | 1.09 tok/pass
+[ 4/60] mt_bench       q105  prompt   257 | normal  26.17 tok/s | H8+H9  30.77 tok/s | 1.29 tok/pass
+[ 5/60] mt_bench       q113  prompt   121 | normal  26.15 tok/s | H8+H9  30.58 tok/s | 1.25 tok/pass
+[ 6/60] mt_bench       q121  prompt    82 | normal  26.35 tok/s | H8+H9  27.03 tok/s | 1.07 tok/pass
+[ 7/60] mt_bench       q129  prompt    88 | normal  26.35 tok/s | H8+H9  28.60 tok/s | 1.15 tok/pass
+[ 8/60] mt_bench       q137  prompt   255 | normal  25.15 tok/s | H8+H9  27.95 tok/s | 1.19 tok/pass
+[ 9/60] mt_bench       q145  prompt   110 | normal  26.35 tok/s | H8+H9  29.46 tok/s | 1.19 tok/pass
+[10/60] mt_bench       q153  prompt    82 | normal  26.36 tok/s | H8+H9  26.93 tok/s | 1.07 tok/pass
+[11/60] translation    q161  prompt    81 | normal  25.73 tok/s | H8+H9  37.13 tok/s | 1.56 tok/pass
+[12/60] translation    q169  prompt    86 | normal  25.55 tok/s | H8+H9  38.08 tok/s | 1.61 tok/pass
+[13/60] translation    q177  prompt    90 | normal  25.67 tok/s | H8+H9  35.19 tok/s | 1.46 tok/pass
+[14/60] translation    q185  prompt    84 | normal  25.71 tok/s | H8+H9  36.75 tok/s | 1.54 tok/pass
+[15/60] translation    q193  prompt    75 | normal  26.00 tok/s | H8+H9  36.47 tok/s | 1.52 tok/pass
+[16/60] translation    q201  prompt    82 | normal  25.60 tok/s | H8+H9  35.21 tok/s | 1.48 tok/pass
+[17/60] translation    q209  prompt    77 | normal  25.57 tok/s | H8+H9  33.56 tok/s | 1.41 tok/pass
+[18/60] translation    q217  prompt    97 | normal  25.81 tok/s | H8+H9  38.89 tok/s | 1.64 tok/pass
+[19/60] translation    q225  prompt   121 | normal  25.91 tok/s | H8+H9  38.32 tok/s | 1.60 tok/pass
+[20/60] translation    q233  prompt    94 | normal  25.91 tok/s | H8+H9  38.77 tok/s | 1.63 tok/pass
+[21/60] summarization  q241  prompt   740 | normal  24.66 tok/s | H8+H9  30.68 tok/s | 1.35 tok/pass
+[22/60] summarization  q249  prompt   642 | normal  24.32 tok/s | H8+H9  30.69 tok/s | 1.39 tok/pass
+[23/60] summarization  q257  prompt   847 | normal  23.63 tok/s | H8+H9  30.08 tok/s | 1.41 tok/pass
+[24/60] summarization  q265  prompt   461 | normal  24.79 tok/s | H8+H9  31.08 tok/s | 1.37 tok/pass
+[25/60] summarization  q273  prompt  1339 | normal  23.98 tok/s | H8+H9  26.45 tok/s | 1.22 tok/pass
+[26/60] summarization  q281  prompt   718 | normal  24.20 tok/s | H8+H9  30.79 tok/s | 1.39 tok/pass
+[27/60] summarization  q289  prompt   591 | normal  24.62 tok/s | H8+H9  29.54 tok/s | 1.31 tok/pass
+[28/60] summarization  q297  prompt  1340 | normal  24.23 tok/s | H8+H9  26.43 tok/s | 1.23 tok/pass
+[29/60] summarization  q305  prompt   390 | normal  24.90 tok/s | H8+H9  29.46 tok/s | 1.29 tok/pass
+[30/60] summarization  q313  prompt   521 | normal  24.66 tok/s | H8+H9  31.21 tok/s | 1.39 tok/pass
+[31/60] qa             q321  prompt    65 | normal  26.30 tok/s | H8+H9  29.02 tok/s | 1.16 tok/pass
+[32/60] qa             q329  prompt    65 | normal  26.20 tok/s | H8+H9  26.83 tok/s | 1.07 tok/pass
+[33/60] qa             q337  prompt    72 | normal  26.22 tok/s | H8+H9  27.05 tok/s | 1.08 tok/pass
+[34/60] qa             q345  prompt    71 | normal  26.20 tok/s | H8+H9  28.20 tok/s | 1.13 tok/pass
+[35/60] qa             q353  prompt    67 | normal  26.34 tok/s | H8+H9  29.83 tok/s | 1.20 tok/pass
+[36/60] qa             q361  prompt    75 | normal  26.31 tok/s | H8+H9  30.51 tok/s | 1.23 tok/pass
+[37/60] qa             q369  prompt    68 | normal  26.17 tok/s | H8+H9  27.52 tok/s | 1.10 tok/pass
+[38/60] qa             q377  prompt    64 | normal  26.08 tok/s | H8+H9  28.47 tok/s | 1.14 tok/pass
+[39/60] qa             q385  prompt    66 | normal  26.21 tok/s | H8+H9  28.40 tok/s | 1.14 tok/pass
+[40/60] qa             q393  prompt    69 | normal  26.37 tok/s | H8+H9  26.37 tok/s | 1.04 tok/pass
+[41/60] math_reasoning q401  prompt   107 | normal  25.81 tok/s | H8+H9  30.92 tok/s | 1.28 tok/pass
+[42/60] math_reasoning q409  prompt   125 | normal  25.95 tok/s | H8+H9  34.13 tok/s | 1.43 tok/pass
+[43/60] math_reasoning q417  prompt    93 | normal  26.01 tok/s | H8+H9  29.94 tok/s | 1.22 tok/pass
+[44/60] math_reasoning q425  prompt   132 | normal  26.29 tok/s | H8+H9  29.81 tok/s | 1.22 tok/pass
+[45/60] math_reasoning q433  prompt   119 | normal  25.81 tok/s | H8+H9  32.55 tok/s | 1.37 tok/pass
+[46/60] math_reasoning q441  prompt    90 | normal  25.54 tok/s | H8+H9  30.65 tok/s | 1.28 tok/pass
+[47/60] math_reasoning q449  prompt    84 | normal  25.51 tok/s | H8+H9  31.36 tok/s | 1.32 tok/pass
+[48/60] math_reasoning q457  prompt   159 | normal  25.82 tok/s | H8+H9  30.38 tok/s | 1.25 tok/pass
+[49/60] math_reasoning q465  prompt    93 | normal  25.97 tok/s | H8+H9  30.66 tok/s | 1.27 tok/pass
+[50/60] math_reasoning q473  prompt   122 | normal  25.98 tok/s | H8+H9  31.83 tok/s | 1.31 tok/pass
+[51/60] rag            q481  prompt   680 | normal  25.34 tok/s | H8+H9  30.88 tok/s | 1.32 tok/pass
+[52/60] rag            q489  prompt   744 | normal  25.27 tok/s | H8+H9  31.56 tok/s | 1.37 tok/pass
+[53/60] rag            q497  prompt   720 | normal  25.30 tok/s | H8+H9  28.88 tok/s | 1.24 tok/pass
+[54/60] rag            q505  prompt   741 | normal  23.89 tok/s | H8+H9  31.90 tok/s | 1.52 tok/pass
+[55/60] rag            q513  prompt   735 | normal  25.57 tok/s | H8+H9  31.48 tok/s | 1.36 tok/pass
+[56/60] rag            q521  prompt   740 | normal  23.38 tok/s | H8+H9  27.59 tok/s | 1.36 tok/pass
+[57/60] rag            q529  prompt   760 | normal  24.15 tok/s | H8+H9  29.23 tok/s | 1.32 tok/pass
+[58/60] rag            q537  prompt   731 | normal  23.71 tok/s | H8+H9  27.27 tok/s | 1.24 tok/pass
+[59/60] rag            q545  prompt   807 | normal  24.82 tok/s | H8+H9  25.78 tok/s | 1.11 tok/pass
+[60/60] rag            q553  prompt   666 | normal  24.41 tok/s | H8+H9  34.98 tok/s | 1.62 tok/pass
+
+round 2: speedup of H8+H9 over normal decoding (Glimmer 30B, M5 Max)
+task              wall-time speedup  decode-only  tok/pass | PLD in Spec-Bench (3090)
+mt_bench                     1.068x       1.068x      1.14 | 1.64x
+translation                  1.432x       1.447x      1.55 | 1.15x
+summarization                1.200x       1.220x      1.32 | 2.46x
+qa                           1.074x       1.073x      1.13 | 1.28x
+math_reasoning               1.183x       1.182x      1.27 | 1.72x
+rag                          1.200x       1.217x      1.33 | 1.71x
+overall                      1.148x       1.152x      1.24 | 1.64x
+saved runs/h8/specbench_r2_20261101-211444.csv (+ .json)
+BATCH DONE

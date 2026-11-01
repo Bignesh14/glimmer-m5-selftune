@@ -5,7 +5,8 @@ Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Indie track, solo. 
 **Result.** On a Mac Studio M5 Max, Meta's Muse Glimmer 30B (4-bit, MLX) now writes **+17 % faster** on a coding task
 and **+5 % to +21 % faster (median +12.8 %)** on its own 19 recorded self-tuning prompts, with **no extra memory**.
 In exact (fp32) arithmetic the text is identical to normal decoding; in bf16 a near-tied token can occasionally flip
-(details below). 21 replicated races, 252 paired timing runs: every one faster. Two pieces: **H8**, prompt-lookup decoding made exact
+(details below). 21 replicated races, 252 paired timing runs: every one faster. On a 60-prompt subset of the standard
+Spec-Bench benchmark: 1.15× overall, every task faster (1.07× to 1.43×). Two pieces: **H8**, prompt-lookup decoding made exact
 for Glimmer's sliding-window cache, and **H9**, a fix that keeps MLX's fast attention kernel in use for H8's 3-token
 check passes, found by this project's referee and traced to MLX's source. Glimmer's own best change: +0.17 %, bit-exact;
 asked to fix the long-context problem itself, it found the fast version in 10 of 16 attempts but never a correct one, and
@@ -30,10 +31,16 @@ side-by-side page that replays both runs with their real measured timings.
 **Your own prompt:** `./run_demo.sh --small --prompt "Write a Python class for a 2D vector with unit tests."`
 (also `--max-tokens 400`, and `--strength low|medium|high` for Glimmer's reasoning effort; `--model <Hugging Face id or
 folder>` for any other mlx-lm model). The decoder helps most when the answer repeats itself: code, edits, refactors,
-structured text; on prose it can be **slower**. Measured with the demo on the C-transpose prompt: Mac Studio M5 Max,
-Glimmer 30B **+15.9 %** (identical text) and Llama 3.2 3B **+11.6 %** (identical text). On a MacBook Air M3 with
-Llama 3.2 3B (single demo runs, not races; the normal speed itself varied 40–45 tok/s between runs, so treat these as
-rough):
+structured text; on prose the gain is small, and on a small Mac it can be **slower**.
+
+**Everyday prompts, Glimmer 30B on the Mac Studio** (`bench/h8_sweep.py --prompts-file bench/general_prompts.txt`; per
+prompt normal, H8+H9, H8+H9, normal in one process; both stop at the end of the answer): code and structured output
++17 % to +22 % (2D-vector class +19.3 %, refactor +20.6 %, JSON schema +21.8 %, SQL +17.3 %), maths word problem
++19.3 %, polite email +5.6 %, short story +2.9 %, hash-map explanation +2.6 %. None slower; median +18.3 %.
+
+**MacBook Air M3, Llama 3.2 3B** (with the demo: single runs, normal decoding always first, on a fanless laptop whose
+normal speed alone varied 40–45 tok/s between runs, so treat these as rough; also measured with the demo on the Studio:
+the C-transpose prompt gained +15.9 % with Glimmer and +11.6 % with Llama 3.2 3B, both with identical text):
 
 | Prompt (Air M3, Llama 3.2 3B) | Normal | H8 | Change |
 |---|---|---|---|
@@ -44,9 +51,11 @@ rough):
 | Refactor a loop into a typed function | 42.3 | 39.9 | −6 % |
 | Short story about a lighthouse keeper | 43.0 | 39.7 | −8 % |
 
-So on a small Mac the decoder pays off when the answer repeats itself a lot (unit tests, boilerplate) and costs a few
-percent on prose, because a wrong guess still costs a slightly bigger forward pass. Switching guessing off when it is
-not paying (adaptive drafting) is the obvious next step and is not done here. Every number in the Results section is
+So on a small Mac the decoder pays off when the answer repeats itself a lot (unit tests, boilerplate) and can cost a few
+percent on prose. Likely reasons (not measured on the Air): a smaller GPU with a small model is less limited by memory
+reads, so checking extra tokens costs relatively more than on the Studio (where a 3-token check pass costs only 1.17×
+a 1-token pass); and the demo always ran H8 second, on a laptop that slows down as it warms up. Switching guessing off
+when it is not paying (adaptive drafting) is the obvious next step and is not done here. Every number in the Results section is
 Glimmer on the M5 Max. H9 applies only to Glimmer (its attention layout is what triggers MLX's slow path).
 
 **What this is.** Muse Glimmer 30B (Meta's open-weight model, 4-bit, MLX) runs on a Mac Studio and is asked to make
@@ -93,6 +102,29 @@ the sweep's median prompt +12.74 / +12.70 %, the first prompt +13.60 / +13.55 %,
 sweep's best prompt +21.02 / +21.04 %; the code task inside the same races +17.04 to +17.12 %. In total: 21 races, 252
 paired runs, all faster, peak memory unchanged, run-to-run noise 0.01–0.05 %. (One earlier attempt at the last race
 crashed at start-up in its final pair because of how the batch was launched; it produced no measurement and was re-run.)
+
+**Standard benchmark: Spec-Bench subset.** Spec-Bench (Xia et al. 2024) is the benchmark used to compare speculative
+decoding methods: 6 tasks of 80 prompts. We ran 10 evenly spaced prompts per task (60, first turn only), Glimmer 30B
+with H9, reasoning low, up to 1024 new tokens, each prompt once with each decoder per round, two rounds with opposite
+order (`bench/spec_bench.py`; Spec-Bench data not redistributed, only question ids are saved). Speed-up of H8+H9 over
+normal decoding, Spec-Bench style (all tokens / all wall time, prompt processing included):
+
+| Task | Round 1 | Round 2 | Tokens per pass | Published PLD, RTX 3090, Vicuna-7B |
+|---|---|---|---|---|
+| Multi-turn conversation (MT-bench) | 1.067× | 1.068× | 1.14 | 1.64× |
+| Translation (WMT14 de-en) | **1.433×** | **1.432×** | 1.55 | 1.15× |
+| Summarization (CNN/DM) | 1.199× | 1.200× | 1.32 | 2.46× |
+| Question answering (Natural Questions) | 1.074× | 1.074× | 1.13 | 1.28× |
+| Maths (GSM8K) | 1.183× | 1.183× | 1.27 | 1.72× |
+| Retrieval-augmented generation | 1.200× | 1.200× | 1.33 | 1.71× |
+| **Overall** | **1.148×** | **1.148×** | 1.24 | 1.64× |
+
+Every task is faster and the two rounds agree within 0.001. The published numbers are a different model, GPU and
+setting, so they are context, not a head-to-head: our decoder guesses at most 2 tokens per pass (the setting the cost
+model chose for Glimmer's self-tuning output, where long guesses lost), which caps it at 3 tokens per pass; that is the
+likely reason summarization, where long copied spans favour long guesses, gains 1.20× here vs 2.46× published.
+Translation gains more than published; we did not save the texts, so the reason is open (one guess: Glimmer's hidden
+reasoning restates the request, which prompt lookup can predict, as seen in the demo output).
 
 **What we learned about the model as an engineer:** unguided at low reasoning it independently rediscovered our first
 human idea (H1); at high reasoning it over-thought and hit the 12k-token cap; its crashes came from treating MLX like

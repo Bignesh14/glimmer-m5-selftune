@@ -1,0 +1,48 @@
+{
+  "time": "2026-11-01 21:42:29",
+  "versions": "mlx 0.32.4 / mlx_lm 0.32.2",
+  "round": 2,
+  "variant": "v2_h9_split_attn",
+  "settings": {
+    "per_task": 10,
+    "max_new": 1024,
+    "strength": "low"
+  },
+  "summary": {
+    "mt_bench": {
+      "wall_speedup": 1.0683562572697132,
+      "decode_speedup": 1.0677283406773037,
+      "tok_per_pass": 1.1364257445881156
+    },
+    "translation": {
+      "wall_speedup": 1.4324435088274516,
+      "decode_speedup": 1.4466848276653954,
+      "tok_per_pass": 1.550559549913445
+    },
+    "summarization": {
+      "wall_speedup": 1.1996224994393674,
+      "decode_speedup": 1.2196654636353792,
+      "tok_per_pass": 1.3242643204670776
+    },
+    "qa": {
+      "wall_speedup": 1.0736818711405254,
+      "decode_speedup": 1.0728502989710234,
+      "tok_per_pass": 1.130812819856704
+    },
+    "math_reasoning": {
+      "wall_speedup": 1.1829084476366412,
+      "decode_speedup": 1.1823738404350133,
+      "tok_per_pass": 1.2694379787234042
+    },
+    "rag": {
+      "wall_speedup": 1.2004644044958377,
+      "decode_speedup": 1.217298703511663,
+      "tok_per_pass": 1.3275017418277262
+    },
+    "overall": {
+      "wall_speedup": 1.1480670455078035,
+      "decode_speedup": 1.1516765188497764,
+      "tok_per_pass": 1.2447801043416746
+    }
+  }
+}
