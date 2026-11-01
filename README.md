@@ -30,10 +30,24 @@ side-by-side page that replays both runs with their real measured timings.
 **Your own prompt:** `./run_demo.sh --small --prompt "Write a Python class for a 2D vector with unit tests."`
 (also `--max-tokens 400`, and `--strength low|medium|high` for Glimmer's reasoning effort; `--model <Hugging Face id or
 folder>` for any other mlx-lm model). The decoder helps most when the answer repeats itself: code, edits, refactors,
-structured text; on free-form prose expect a small gain. Measured with the demo on the C-transpose prompt: Mac Studio
-M5 Max, Glimmer 30B **+15.9 %** (identical text) and Llama 3.2 3B **+11.6 %** (identical text); MacBook Air M3,
-Llama 3.2 3B **+3.0 %**. The gain depends on the Mac and the model; every number in the Results section is Glimmer on the
-M5 Max. H9 applies only to Glimmer (its attention layout is what triggers MLX's slow path).
+structured text; on prose it can be **slower**. Measured with the demo on the C-transpose prompt: Mac Studio M5 Max,
+Glimmer 30B **+15.9 %** (identical text) and Llama 3.2 3B **+11.6 %** (identical text). On a MacBook Air M3 with
+Llama 3.2 3B (single demo runs, not races; the normal speed itself varied 40–45 tok/s between runs, so treat these as
+rough):
+
+| Prompt (Air M3, Llama 3.2 3B) | Normal | H8 | Change |
+|---|---|---|---|
+| Python 2D-vector class + unit tests | 40.5 tok/s | 55.6 tok/s | **+37 %** |
+| C function: transpose a matrix in place | 45.0 | 46.4 | +3 % |
+| JSON schema for a library book + example | 45.3 | 46.4 | +2 % |
+| Explain a hash map to a beginner | 44.2 | 44.0 | −1 % |
+| Refactor a loop into a typed function | 42.3 | 39.9 | −6 % |
+| Short story about a lighthouse keeper | 43.0 | 39.7 | −8 % |
+
+So on a small Mac the decoder pays off when the answer repeats itself a lot (unit tests, boilerplate) and costs a few
+percent on prose, because a wrong guess still costs a slightly bigger forward pass. Switching guessing off when it is
+not paying (adaptive drafting) is the obvious next step and is not done here. Every number in the Results section is
+Glimmer on the M5 Max. H9 applies only to Glimmer (its attention layout is what triggers MLX's slow path).
 
 **What this is.** Muse Glimmer 30B (Meta's open-weight model, 4-bit, MLX) runs on a Mac Studio and is asked to make
 *its own* text generation faster without changing what it outputs. Every change it proposes passes through a
