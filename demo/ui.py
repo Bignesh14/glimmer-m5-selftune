@@ -26,6 +26,7 @@ sys.path.insert(0, str(HERE.parent / "bench"))
 sys.path.insert(0, str(HERE))
 
 import demo as D  # noqa: E402  (render, run_normal, run_h8, speed, model ids, RAM check)
+import mascot  # noqa: E402
 
 STATE = {}
 
@@ -70,6 +71,7 @@ with their real timings.</p></header>
 </div><div id="sum"></div>
 <script>
 const $=id=>document.getElementById(id);let runs={a:null,b:null},es=null,raf=null;
+const PA=()=>document.querySelector(".p.A"),PB=()=>document.querySelector(".p.B"),SP=()=>window.spark||null;
 document.querySelectorAll(".ex a").forEach(a=>a.onclick=()=>{$("q").value=a.dataset.q});
 function stat(se,n,nf,el,done,spd,free){se.innerHTML=`<span>${n}</span> tokens &middot; <span>${el.toFixed(1)}</span> s &middot; `+
 (done?`<span>${spd.toFixed(1)} tok/s</span> done`:`<span>${(n/Math.max(el,1e-3)).toFixed(1)}</span> tok/s`)+(free?` &middot; <span>${n?Math.round(100*nf/n):0}%</span> free`:"")}
@@ -77,22 +79,30 @@ function put(te,e,free){if(free&&e[3]){const s=document.createElement("span");s.
 else te.appendChild(document.createTextNode(e[2]));te.scrollTop=te.scrollHeight}
 $("f").onsubmit=ev=>{ev.preventDefault();const q=$("q").value.trim();if(!q)return;if(es)es.close();cancelAnimationFrame(raf);
 ["ta","tb"].forEach(i=>$(i).textContent="");["sa","sb"].forEach(i=>$(i).textContent="");$("sum").textContent="generating with normal decoding...";
-$("go").disabled=true;$("rp").disabled=true;runs={a:{events:[]},b:{events:[]}};
+$("go").disabled=true;$("rp").disabled=true;runs={a:{events:[]},b:{events:[]}};const M=+$("m").value||400;
+SP()&&SP().hopTo(PA(),0);
 const s=$("s")?$("s").value:"low";
 es=new EventSource(`/run?q=${encodeURIComponent(q)}&m=${$("m").value}&s=${s}`);
 es.onmessage=m=>{const d=JSON.parse(m.data);
 if(d.type==="tok"){const r=runs[d.side];r.events.push(d.e);put(d.side==="a"?$("ta"):$("tb"),d.e,d.side==="b");
+if(SP()){SP().ride(d.side==="a"?PA():PB(),d.e[1]/M);if(d.side==="b"&&d.e[3])SP().free()}
 stat(d.side==="a"?$("sa"):$("sb"),d.e[1],d.e[4],d.e[0],false,0,d.side==="b")}
 else if(d.type==="done"){const r=runs[d.side];r.t_end=d.t_end;r.speed=d.speed;const last=r.events[r.events.length-1]||[0,0,"",0,0];
 stat(d.side==="a"?$("sa"):$("sb"),last[1],last[4],d.t_end,true,d.speed,d.side==="b");
-if(d.side==="a")$("sum").textContent="generating with __BSHORT__..."}
-else if(d.type==="summary"){$("sum").innerHTML=d.html;es.close();$("go").disabled=false;$("rp").disabled=false}
+if(d.side==="a"){$("sum").textContent="generating with __BSHORT__...";SP()&&SP().hopTo(PB(),0)}}
+else if(d.type==="summary"){$("sum").innerHTML=d.html;es.close();$("go").disabled=false;$("rp").disabled=false;
+if(SP()){d.gain>0.5?SP().cheer():SP().shrug()}}
 else if(d.type==="error"){$("sum").textContent=d.msg;es.close();$("go").disabled=false}};
 es.onerror=()=>{if(es)es.close();$("go").disabled=false};};
-function pane(r,te,se,free){let i=0;te.textContent="";return now=>{while(i<r.events.length&&r.events[i][0]<=now){put(te,r.events[i],free);i++}
-const l=i?r.events[i-1]:[0,0,"",0,0],fin=now>=r.t_end;stat(se,l[1],l[4],Math.min(now,r.t_end),fin,r.speed,free);return fin}}
+function pane(r,te,se,free){let i=0;te.textContent="";const fn=now=>{while(i<r.events.length&&r.events[i][0]<=now){put(te,r.events[i],free);
+if(free&&r.events[i][3]&&SP())SP().free();i++}
+const l=i?r.events[i-1]:[0,0,"",0,0],fin=now>=r.t_end;stat(se,l[1],l[4],Math.min(now,r.t_end),fin,r.speed,free);return fin};
+fn.prog=()=>r.events.length?i/r.events.length:1;return fn}
 $("rp").onclick=()=>{cancelAnimationFrame(raf);const a=pane(runs.a,$("ta"),$("sa"),false),b=pane(runs.b,$("tb"),$("sb"),true),t0=performance.now();
-(function f(){const now=(performance.now()-t0)/1000;const x=a(now),y=b(now);if(!(x&&y))raf=requestAnimationFrame(f)})()};
+SP()&&SP().hopTo(PB(),0);let cheered=false;
+(function f(){const now=(performance.now()-t0)/1000;const x=a(now),y=b(now);SP()&&SP().ride(PB(),b.prog());
+if(y&&!cheered&&SP()){cheered=true;runs.b.speed>runs.a.speed*1.005?SP().cheer():SP().shrug()}
+if(!(x&&y))raf=requestAnimationFrame(f)})()};
 </script></body></html>"""
 
 
@@ -160,7 +170,7 @@ class Handler(BaseHTTPRequestHandler):
                f"page took {100 * ov:.1f}% of the time); the README has the measured races.")
         print(f"[{time.strftime('%H:%M:%S')}] {len(ids)}-token prompt: normal {sa:.1f} tok/s, {STATE['bshort']} "
               f"{sb:.1f} tok/s ({gain:+.1f}%)", flush=True)
-        emit({"type": "summary", "html": msg})
+        emit({"type": "summary", "html": msg, "gain": gain})
 
 
 def main():
@@ -195,6 +205,7 @@ def main():
             .replace("__TITLE__", "Muse Glimmer 30B (4-bit) on this Mac" if is_glimmer else f"{html.escape(name)} on this Mac")
             .replace("__BNAME__", bname).replace("__BSHORT__", bname).replace("__INFO__", info)
             .replace("__STRENGTH__", strength))
+    page = mascot.inject(page)
     STATE.update(model=model, tok=tok, hf=hf, eos=eos, page=page, bshort=bname)
     srv = HTTPServer(("127.0.0.1", a.port), Handler)      # single-threaded: one prompt at a time, MLX on main thread
     url = f"http://127.0.0.1:{a.port}"

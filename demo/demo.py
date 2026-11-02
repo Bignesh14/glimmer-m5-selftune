@@ -36,6 +36,7 @@ from mlx_lm.generate import generate_step, generation_stream, wired_limit
 from mlx_lm.sample_utils import make_sampler
 
 import common as C
+import mascot
 from lookup_decode import Drafter, lookup_generate
 
 GRAY, BOLD, GREEN, RESET = "\033[90m", "\033[1m", "\033[32m", "\033[0m"
@@ -172,17 +173,22 @@ button{background:var(--line);color:var(--ink);border:0;border-radius:6px;paddin
 machine, model loaded once). __FOOT__</footer>
 <script>
 const D=__DATA__;
-function pane(r,te,se,showFree){let i=0;te.textContent="";return function(now){let added=false;
+function pane(r,te,se,showFree){let i=0;te.textContent="";const fn=function(now){let added=false;
 while(i<r.events.length&&r.events[i][0]<=now){const e=r.events[i];
-if(showFree&&e[3]){const sp=document.createElement("span");sp.className="free";sp.textContent=e[2];te.appendChild(sp)}
+if(showFree&&e[3]){const sp=document.createElement("span");sp.className="free";sp.textContent=e[2];te.appendChild(sp);
+if(window.spark)window.spark.free()}
 else te.appendChild(document.createTextNode(e[2]));i++;added=true}
 if(added)te.scrollTop=te.scrollHeight;const last=i?r.events[i-1]:null,n=last?last[1]:0,nf=last?last[4]:0,el=Math.min(now,r.t_end);
 const fin=now>=r.t_end;const freeTxt=showFree?` &middot; <span>${n?Math.round(100*nf/n):0}%</span> free`:"";
 se.innerHTML=`<span>${n}</span> tokens &middot; <span>${el.toFixed(1)}</span> s &middot; `+
-(fin?`<span class="done">${r.speed.toFixed(1)} tok/s &mdash; done</span>`:`<span>${(n/Math.max(el,1e-3)).toFixed(1)}</span> tok/s`)+freeTxt;return fin}}
+(fin?`<span class="done">${r.speed.toFixed(1)} tok/s &mdash; done</span>`:`<span>${(n/Math.max(el,1e-3)).toFixed(1)}</span> tok/s`)+freeTxt;return fin};
+fn.prog=()=>r.events.length?i/r.events.length:1;return fn}
 let raf;function go(){cancelAnimationFrame(raf);const a=pane(D.a,ta,sa,false),b=pane(D.b,tb,sb,true),s=performance.now();
-(function f(){const now=(performance.now()-s)/1000;const x=a(now),y=b(now);if(!(x&&y))raf=requestAnimationFrame(f)})()}
-go();
+const PB=document.querySelector(".p.B");if(window.spark)window.spark.hopTo(PB,0);let cheered=false;
+(function f(){const now=(performance.now()-s)/1000;const x=a(now),y=b(now);if(window.spark)window.spark.ride(PB,b.prog());
+if(y&&!cheered&&window.spark){cheered=true;D.b.speed>D.a.speed*1.005?window.spark.cheer():window.spark.shrug()}
+if(!(x&&y))raf=requestAnimationFrame(f)})()}
+setTimeout(go,300);
 </script></body></html>"""
 
 
@@ -253,7 +259,7 @@ def main():
     out = HERE / "out" / f"replay_{time.strftime('%Y%m%d-%H%M%S')}.html"
     out.parent.mkdir(exist_ok=True)
     title = ("Muse Glimmer 30B (4-bit) on this Mac" if is_glimmer else f"{html.escape(model_name)} on this Mac")
-    out.write_text(PAGE.replace("__TABTITLE__", ("Glimmer: normal vs H8+H9" if is_glimmer else f"{html.escape(model_name)}: normal vs H8")).replace("__TITLE__", title).replace("__BNAME__", "H8 + H9" if is_glimmer else "H8").replace("__INFO__", info).replace("__FOOT__", foot)
+    out.write_text(mascot.inject(PAGE).replace("__TABTITLE__", ("Glimmer: normal vs H8+H9" if is_glimmer else f"{html.escape(model_name)}: normal vs H8")).replace("__TITLE__", title).replace("__BNAME__", "H8 + H9" if is_glimmer else "H8").replace("__INFO__", info).replace("__FOOT__", foot)
                    .replace("__DATA__", json.dumps(data).replace("</", "<\\/")))
     print(f"\nreplay page: {out.relative_to(HERE.parent)}   (open it: open {out.relative_to(HERE.parent)})")
 
