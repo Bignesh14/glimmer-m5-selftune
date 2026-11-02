@@ -38,7 +38,7 @@ from mlx_lm.sample_utils import make_sampler
 import common as C
 from lookup_decode import Drafter, lookup_generate
 
-GRAY, BOLD, RESET = "\033[90m", "\033[1m", "\033[0m"
+GRAY, BOLD, GREEN, RESET = "\033[90m", "\033[1m", "\033[32m", "\033[0m"
 
 
 def render(hf, text, strength):
@@ -50,33 +50,43 @@ def render(hf, text, strength):
 class Stream:
     """Turns tokens into text pieces with timestamps, and prints them live."""
 
-    def __init__(self, tok, t0, show=True):
+    def __init__(self, tok, t0, show=True, cb=None):
         self.d = tok.detokenizer
         self.d.reset()
-        self.t0, self.show, self.events, self.n = t0, show, [], 0
+        self.t0, self.show, self.events, self.n, self.nfree, self.cb = t0, show, [], 0, 0, cb
+        self.overhead = 0.0          # seconds spent printing / sending to the browser (excluded from tok/s)
 
-    def add(self, toks, t):
-        for x in toks:
+    def add(self, toks, t, free=None):
+        """free[i] = 1 if toks[i] was a confirmed guess of prompt-lookup decoding (came "for free")."""
+        free = free or [0] * len(toks)
+        for x, f in zip(toks, free):
             self.d.add_token(x)
             self.n += 1
-        seg = self.d.last_segment
-        if seg:
-            self.events.append([round(t - self.t0, 4), self.n, seg])
-            if self.show:
-                print(seg, end="", flush=True)
+            self.nfree += f
+            seg = self.d.last_segment
+            if seg:
+                self.events.append([round(t - self.t0, 4), self.n, seg, f, self.nfree])
+                o = time.perf_counter()
+                if self.cb:
+                    self.cb(self.events[-1])
+                if self.show:
+                    print(f"{GREEN}{seg}{RESET}" if f else seg, end="", flush=True)
+                self.overhead += time.perf_counter() - o
 
     def close(self, t):
         self.d.finalize()
         seg = self.d.last_segment
         if seg:
-            self.events.append([round(t - self.t0, 4), self.n, seg])
+            self.events.append([round(t - self.t0, 4), self.n, seg, 0, self.nfree])
+            if self.cb:
+                self.cb(self.events[-1])
             if self.show:
                 print(seg, end="", flush=True)
 
 
-def run_normal(model, tok, ids, n, eos, show=True):
+def run_normal(model, tok, ids, n, eos, show=True, cb=None):
     toks, t0 = [], time.perf_counter()
-    st = Stream(tok, t0, show)
+    st = Stream(tok, t0, show, cb)
     with wired_limit(model, [generation_stream]):
         for i, (t, _) in enumerate(generate_step(mx.array(ids), model, max_tokens=n,
                                                  sampler=make_sampler(temp=0.0))):
@@ -90,12 +100,12 @@ def run_normal(model, tok, ids, n, eos, show=True):
     t_end = time.perf_counter()
     st.close(t_end)
     return {"tokens": toks, "events": st.events, "t_first": t_first - t0, "t_end": t_end - t0,
-            "first_pass_tokens": 1, "tok_per_pass": 1.0}
+            "first_pass_tokens": 1, "tok_per_pass": 1.0, "overhead": st.overhead}
 
 
-def run_h8(model, tok, ids, n, eos, show=True):
+def run_h8(model, tok, ids, n, eos, show=True, cb=None):
     t0 = time.perf_counter()
-    st = Stream(tok, t0, show)
+    st = Stream(tok, t0, show, cb)
     mine = Drafter(ids[:-1], 2, 2)
     seen = {"pushed": False, "n": 0}
 
@@ -109,7 +119,9 @@ def run_h8(model, tok, ids, n, eos, show=True):
         for x in new:
             mine.push(x)
         if new:
-            st.add(new, now)
+            # tokens of one forward pass: all but the last were guesses the model confirmed ("free");
+            # the last is the model's own next token
+            st.add(new, now, [1] * (len(new) - 1) + [0])
         seen["n"] = len(out)
         return mine.draft(limit)
 
@@ -117,15 +129,18 @@ def run_h8(model, tok, ids, n, eos, show=True):
     with wired_limit(model, [generation_stream]), mx.stream(generation_stream):
         out, stats = lookup_generate(model, ids, n, k=2, n_min=2, eos_ids=eos, draft_fn=draft_fn, timing=tm)
     if out[seen["n"]:]:
-        st.add(out[seen["n"]:], tm["t_end"])
+        last = out[seen["n"]:]
+        st.add(last, tm["t_end"], [1] * (len(last) - 1) + [0])
     st.close(tm["t_end"])
     return {"tokens": out, "events": st.events, "t_first": tm["t_first"] - t0, "t_end": tm["t_end"] - t0,
             "first_pass_tokens": tm["first_pass_tokens"], "tok_per_pass": stats["tok_per_pass"],
-            "accept": stats["accept_rate"]}
+            "accept": stats["accept_rate"], "overhead": st.overhead}
 
 
 def speed(r):
-    return (len(r["tokens"]) - r["first_pass_tokens"]) / (r["t_end"] - r["t_first"])
+    """tokens/s after the first forward pass (as in the bench). Printing / sending text to the browser is included for
+    both decoders; it is recorded in r["overhead"] and is well under 1 % of the time with real models."""
+    return (len(r["tokens"]) - r["first_pass_tokens"]) / max(r["t_end"] - r["t_first"], 1e-9)
 
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>__TABTITLE__</title>
@@ -141,6 +156,8 @@ header{padding:18px 24px 6px}h1{margin:0;font-size:20px}header p{margin:4px 0 0;
 .st{font-variant-numeric:tabular-nums;color:var(--mute);font-size:13px}.st span{color:var(--ink);font-weight:600}
 pre{margin:0;padding:12px 14px;white-space:pre-wrap;word-break:break-word;overflow:auto;flex:1;font:13px/1.45 ui-monospace,Menlo,monospace}
 .done{color:var(--b);font-weight:700}
+.free{color:var(--b);background:rgba(158,206,106,.16);border-radius:2px}
+.key{padding:6px 14px;font-size:12px;color:var(--mute);border-bottom:1px solid var(--line)}.key span{padding:0 4px}
 footer{padding:0 24px 18px;color:var(--mute);font-size:12px}
 button{background:var(--line);color:var(--ink);border:0;border-radius:6px;padding:6px 12px;margin-left:8px;cursor:pointer}
 @media(max-width:800px){.grid{grid-template-columns:1fr}.p{height:45vh}}
@@ -149,17 +166,21 @@ button{background:var(--line);color:var(--ink);border:0;border-radius:6px;paddin
 <button onclick="go()">replay</button></h1><p>__INFO__</p></header>
 <div class="grid">
 <div class="p A"><div class="h"><b>Normal decoding (mlx-lm)</b><div class="st" id="sa"></div></div><pre id="ta"></pre></div>
-<div class="p B"><div class="h"><b>__BNAME__ (this project)</b><div class="st" id="sb"></div></div><pre id="tb"></pre></div>
+<div class="p B"><div class="h"><b>__BNAME__ (this project)</b><div class="st" id="sb"></div></div><div class="key"><span class="free">green</span> = guessed from earlier text and confirmed by the model: came almost free</div><pre id="tb"></pre></div>
 </div>
 <footer>Replay of two real runs with their measured per-token timings (run one after the other on the same
 machine, model loaded once). __FOOT__</footer>
 <script>
 const D=__DATA__;
-function pane(r,t,te,se,ti){let i=0,txt="";return function(now){while(i<r.events.length&&r.events[i][0]<=now){txt+=r.events[i][2];i++}
-te.textContent=txt;te.scrollTop=te.scrollHeight;const n=i?r.events[i-1][1]:0,el=Math.min(now,r.t_end);
-const fin=now>=r.t_end;se.innerHTML=`<span>${n}</span> tokens &middot; <span>${el.toFixed(1)}</span> s &middot; `+
-(fin?`<span class="done">${r.speed.toFixed(1)} tok/s &mdash; done</span>`:`<span>${(n/Math.max(el,1e-3)).toFixed(1)}</span> tok/s`);return fin}}
-let raf;function go(){cancelAnimationFrame(raf);const a=pane(D.a,0,ta,sa),b=pane(D.b,0,tb,sb),s=performance.now();
+function pane(r,te,se,showFree){let i=0;te.textContent="";return function(now){let added=false;
+while(i<r.events.length&&r.events[i][0]<=now){const e=r.events[i];
+if(showFree&&e[3]){const sp=document.createElement("span");sp.className="free";sp.textContent=e[2];te.appendChild(sp)}
+else te.appendChild(document.createTextNode(e[2]));i++;added=true}
+if(added)te.scrollTop=te.scrollHeight;const last=i?r.events[i-1]:null,n=last?last[1]:0,nf=last?last[4]:0,el=Math.min(now,r.t_end);
+const fin=now>=r.t_end;const freeTxt=showFree?` &middot; <span>${n?Math.round(100*nf/n):0}%</span> free`:"";
+se.innerHTML=`<span>${n}</span> tokens &middot; <span>${el.toFixed(1)}</span> s &middot; `+
+(fin?`<span class="done">${r.speed.toFixed(1)} tok/s &mdash; done</span>`:`<span>${(n/Math.max(el,1e-3)).toFixed(1)}</span> tok/s`)+freeTxt;return fin}}
+let raf;function go(){cancelAnimationFrame(raf);const a=pane(D.a,ta,sa,false),b=pane(D.b,tb,sb,true),s=performance.now();
 (function f(){const now=(performance.now()-s)/1000;const x=a(now),y=b(now);if(!(x&&y))raf=requestAnimationFrame(f)})()}
 go();
 </script></body></html>"""
@@ -215,7 +236,11 @@ def main():
     print(f"  normal : {len(ra['tokens'])} tokens in {ra['t_end']:.2f} s  -> {sa_:.2f} tok/s")
     lab = "H8+H9" if is_glimmer else "H8   "
     print(f"  {lab}  : {len(rb['tokens'])} tokens in {rb['t_end']:.2f} s  -> {sb_:.2f} tok/s  "
-          f"({rb['tok_per_pass']:.2f} tokens per forward pass, {100 * rb['accept']:.0f}% of guesses accepted)")
+          f"({rb['tok_per_pass']:.2f} tokens per forward pass, {100 * rb['accept']:.0f}% of guesses accepted, "
+          f"{100 * (rb['events'][-1][4] if rb['events'] else 0) / max(len(rb['tokens']), 1):.0f}% of tokens came free; "
+          f"shown in green above)")
+    ov = max(ra["overhead"] / max(ra["t_end"], 1e-9), rb["overhead"] / max(rb["t_end"], 1e-9))
+    print(f"  (time spent printing the text: at most {100 * ov:.2f}% of a run, included for both)")
     print(f"  speed-up {100 * (sb_ / sa_ - 1):+.1f}%   texts: {same}"
           f"{'' if diff == -1 else ' (a bf16 near-tie; both are valid greedy continuations)'}")
     for r, s in ((ra, sa_), (rb, sb_)):

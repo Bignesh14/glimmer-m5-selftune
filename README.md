@@ -28,6 +28,11 @@ The first run creates a private Python environment (`.venv`), installs the pinne
 with normal decoding (mlx-lm) and with this project's decoder, prints both answers and their speeds, and opens a
 side-by-side page that replays both runs with their real measured timings.
 
+**Web page:** `./run_demo.sh --ui` (or `./run_demo.sh --ui --small`) loads the model once and opens a local page
+(http://127.0.0.1:8765, reachable only from that Mac): type any prompt, watch both decoders stream (normal first, then
+ours), with the tokens that came from confirmed guesses shown in green, then press *Replay side by side* to see both runs
+together with their real timings. The terminal demo marks the same tokens in green.
+
 **Your own prompt:** `./run_demo.sh --small --prompt "Write a Python class for a 2D vector with unit tests."`
 (also `--max-tokens 400`, and `--strength low|medium|high` for Glimmer's reasoning effort; `--model <Hugging Face id or
 folder>` for any other mlx-lm model). The decoder helps most when the answer repeats itself: code, edits, refactors,
