@@ -147,20 +147,20 @@ def speed(r):
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>__TABTITLE__</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--a:#7aa2f7;--b:#9ece6a;--line:#262b36}
+:root{--bg:#f6f7fb;--panel:#ffffff;--ink:#1b1f2a;--mute:#5d6678;--a:#2f6bff;--b:#0f9d4a;--line:#e2e6ef;--freebg:rgba(22,190,90,.16);--shadow:0 1px 3px rgba(20,30,60,.08),0 6px 18px rgba(20,30,60,.06)}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,system-ui,sans-serif}
 header{padding:18px 24px 6px}h1{margin:0;font-size:20px}header p{margin:4px 0 0;color:var(--mute);font-size:13px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px 24px}
-.p{background:var(--panel);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;height:72vh}
+.p{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;height:72vh}
 .h{display:flex;justify-content:space-between;align-items:baseline;padding:10px 14px;border-bottom:1px solid var(--line)}
 .h b{font-size:16px}.A b{color:var(--a)}.B b{color:var(--b)}
 .st{font-variant-numeric:tabular-nums;color:var(--mute);font-size:13px}.st span{color:var(--ink);font-weight:600}
 pre{margin:0;padding:12px 14px;white-space:pre-wrap;word-break:break-word;overflow:auto;flex:1;font:13px/1.45 ui-monospace,Menlo,monospace}
 .done{color:var(--b);font-weight:700}
-.free{color:var(--b);background:rgba(158,206,106,.16);border-radius:2px}
+.free{color:#08793a;background:var(--freebg);border-radius:3px;font-weight:600}
 .key{padding:6px 14px;font-size:12px;color:var(--mute);border-bottom:1px solid var(--line)}.key span{padding:0 4px}
 footer{padding:0 24px 18px;color:var(--mute);font-size:12px}
-button{background:var(--line);color:var(--ink);border:0;border-radius:6px;padding:6px 12px;margin-left:8px;cursor:pointer}
+button{background:var(--a);color:#fff;border:0;border-radius:8px;padding:6px 14px;margin-left:8px;cursor:pointer;font-weight:600}
 @media(max-width:800px){.grid{grid-template-columns:1fr}.p{height:45vh}}
 </style></head><body>
 <header><h1>__TITLE__ &mdash; same prompt, two decoders

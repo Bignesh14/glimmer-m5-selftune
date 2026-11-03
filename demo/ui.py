@@ -33,26 +33,27 @@ STATE = {}
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>__TAB__</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--a:#7aa2f7;--b:#9ece6a;--line:#262b36}
+:root{--bg:#f6f7fb;--panel:#ffffff;--ink:#1b1f2a;--mute:#5d6678;--a:#2f6bff;--b:#0f9d4a;--line:#e2e6ef;--freebg:rgba(22,190,90,.16);--shadow:0 1px 3px rgba(20,30,60,.08),0 6px 18px rgba(20,30,60,.06)}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,system-ui,sans-serif}
 header{padding:16px 24px 4px}h1{margin:0;font-size:19px}header p{margin:4px 0 0;color:var(--mute);font-size:13px}
 form{display:flex;gap:10px;padding:10px 24px;flex-wrap:wrap;align-items:flex-start}
-textarea{flex:1;min-width:260px;height:58px;background:var(--panel);color:var(--ink);border:1px solid var(--line);
+textarea{flex:1;min-width:260px;height:58px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);border:1px solid var(--line);
 border-radius:8px;padding:8px 10px;font:14px/1.4 -apple-system,system-ui,sans-serif;resize:vertical}
 .opts{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mute)}
 select,input[type=number]{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 6px}
-button{background:#2b3245;color:var(--ink);border:0;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:600}
+button{background:var(--a);color:#fff;border:0;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:600;box-shadow:0 2px 8px rgba(47,107,255,.25)}
+#rp{background:#0f9d4a;box-shadow:0 2px 8px rgba(15,157,74,.25)}
 button:disabled{opacity:.45;cursor:default}
 .ex{padding:0 24px;font-size:12px;color:var(--mute)}.ex a{color:var(--a);cursor:pointer;margin-right:12px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:12px 24px}
-.p{background:var(--panel);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;height:58vh}
+.p{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;height:58vh}
 .h{display:flex;justify-content:space-between;align-items:baseline;padding:10px 14px;border-bottom:1px solid var(--line)}
 .h b{font-size:15px}.A b{color:var(--a)}.B b{color:var(--b)}
 .st{font-variant-numeric:tabular-nums;color:var(--mute);font-size:13px}.st span{color:var(--ink);font-weight:600}
 .key{padding:6px 14px;font-size:12px;color:var(--mute);border-bottom:1px solid var(--line)}
 pre{margin:0;padding:12px 14px;white-space:pre-wrap;word-break:break-word;overflow:auto;flex:1;font:13px/1.45 ui-monospace,Menlo,monospace}
-.free{color:var(--b);background:rgba(158,206,106,.16);border-radius:2px}
-#sum{padding:0 24px 18px;font-size:14px;min-height:22px}#sum b{color:var(--b)}
+.free{color:#08793a;background:var(--freebg);border-radius:3px;font-weight:600}
+#sum{padding:0 24px 18px;font-size:14px;min-height:22px}#sum b{color:#08793a}
 @media(max-width:800px){.grid{grid-template-columns:1fr}.p{height:40vh}}
 </style></head><body>
 <header><h1>__TITLE__ &mdash; try your own prompt</h1>
