@@ -6,11 +6,75 @@ Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Indie track, solo. 
 and **+5 % to +21 % faster (median +12.8 %)** on its own 19 recorded self-tuning prompts, with **no extra memory**.
 In exact (fp32) arithmetic the text is identical to normal decoding; in bf16 a near-tied token can occasionally flip
 (details below). 21 replicated races, 252 paired timing runs: every one faster. On a 60-prompt subset of the standard
-Spec-Bench benchmark: 1.15× overall, every task faster (1.07× to 1.43×). Two pieces: **H8**, prompt-lookup decoding made exact
-for Glimmer's sliding-window cache, and **H9**, a fix that keeps MLX's fast attention kernel in use for H8's 3-token
+Spec-Bench benchmark: 1.15× overall, every task faster (1.07× to 1.43×). Two pieces: **prompt-lookup decoding**, made exact
+for Glimmer's sliding-window cache, and **split attention**, a fix that keeps MLX's fast attention kernel in use for prompt lookup's 3-token
 check passes, found by this project's referee and traced to MLX's source. Glimmer's own best change: +0.17 %, bit-exact;
 asked to fix the long-context problem itself, it found the fast version in 10 of 16 attempts but never a correct one, and
 the referee rejected every one (details below).
+
+## At a glance
+
+| | |
+|---|---|
+| **Speed-up, Glimmer's own 19 prompts** | median **+12.8 %** (+5.4 to +21.0 %) |
+| **Speed-up, everyday prompts** | median **+18.3 %** (up to +21.8 % on code and structured output) |
+| **Spec-Bench (60 prompts, 6 tasks)** | **1.15×** overall, every task faster |
+| **Timing evidence** | 21 races, **252 of 252** paired runs faster |
+| **Extra memory** | **0** |
+| **Glimmer's own attempts at the long-context fix** | 16 tried, 10 as fast as ours but wrong, **0 correct** |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/everyday-prompts-dark.png">
+  <img alt="Bar chart: speed-up per everyday prompt with prompt-lookup decoding and split attention, from +21.8% (JSON schema) to +2.6% (explain a hash map)" src="docs/figures/everyday-prompts-light.png">
+</picture>
+
+### How the decoder works
+
+```mermaid
+flowchart LR
+  A["Text so far"] --> B{"Have the last 2 tokens<br/>appeared earlier?"}
+  B -- "no" --> D["Normal step:<br/>1 new token"]
+  B -- "yes" --> C["Prompt lookup: guess the next 2 tokens<br/>from what followed last time"]
+  C --> E["One forward pass checks all 3 positions<br/>(split attention: chunks of ≤ 2 queries<br/>so MLX keeps its fast attention kernel)"]
+  E --> F["Keep the guesses the model agrees with,<br/>plus 1 token of its own"]
+  F --> G["Exact rollback: cut rejected tokens off the cache,<br/>also past Glimmer's 2048-token sliding window"]
+  G --> A
+  D --> A
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/pass-cost-dark.png">
+  <img alt="Bar chart: cost of a forward pass relative to a 1-token pass at 13,759 tokens of context; 3 tokens cost 1.44x on stock MLX and 1.21x with split attention" src="docs/figures/pass-cost-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/context-gain-dark.png">
+  <img alt="Scatter plot: speed-up vs context length on 20 prompts; prompt lookup alone falls to about +1% at 14K tokens, with split attention it stays near +12%" src="docs/figures/context-gain-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/spec-bench-dark.png">
+  <img alt="Bar chart: Spec-Bench speed-up per task, from 1.43x (translation) to 1.07x (multi-turn chat), 1.15x overall" src="docs/figures/spec-bench-light.png">
+</picture>
+
+### The referee: how every change was judged
+
+```mermaid
+flowchart LR
+  P["Glimmer proposes a change<br/>to its own model code"] --> S{"Safety<br/>gate"}
+  S -- "passes" --> G{"Bit-exact<br/>vs golden?"}
+  G -- "yes" --> R["Interleaved A/B races<br/>6 paired runs, replicated"]
+  R --> V["Verdict + numbers<br/>back to Glimmer"]
+  S -- "fails" --> X["Rejected, with the reason,<br/>back to Glimmer"]
+  G -- "no" --> X
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/glimmer-attempts-dark.png">
+  <img alt="Stacked bar: Glimmer's 16 attempts at the long-context fix; 10 fast but wrong, 5 crashed, 1 ran out of tokens, 0 correct" src="docs/figures/glimmer-attempts-light.png">
+</picture>
+
+All charts are generated from the files in `runs/h8/` by `docs/figures/make_figures.py`.
 
 ## Try it on your Mac (one command)
 
@@ -39,7 +103,7 @@ folder>` for any other mlx-lm model). The decoder helps most when the answer rep
 structured text; on prose the gain is small, and on a small Mac it can be **slower**.
 
 **Everyday prompts, Glimmer 30B on the Mac Studio** (`bench/h8_sweep.py --prompts-file bench/general_prompts.txt`; per
-prompt normal, H8+H9, H8+H9, normal in one process; both stop at the end of the answer): code and structured output
+prompt normal, ours, ours, normal in one process; both stop at the end of the answer): code and structured output
 +17 % to +22 % (2D-vector class +19.3 %, refactor +20.6 %, JSON schema +21.8 %, SQL +17.3 %), maths word problem
 +19.3 %, polite email +5.6 %, short story +2.9 %, hash-map explanation +2.6 %. None slower; median +18.3 %.
 
@@ -47,7 +111,7 @@ prompt normal, H8+H9, H8+H9, normal in one process; both stop at the end of the 
 normal speed alone varied 40–45 tok/s between runs, so treat these as rough; also measured with the demo on the Studio:
 the C-transpose prompt gained +15.9 % with Glimmer and +11.6 % with Llama 3.2 3B, both with identical text):
 
-| Prompt (Air M3, Llama 3.2 3B) | Normal | H8 | Change |
+| Prompt (Air M3, Llama 3.2 3B) | Normal | Prompt lookup | Change |
 |---|---|---|---|
 | Python 2D-vector class + unit tests | 40.5 tok/s | 55.6 tok/s | **+37 %** |
 | C function: transpose a matrix in place | 45.0 | 46.4 | +3 % |
@@ -59,9 +123,9 @@ the C-transpose prompt gained +15.9 % with Glimmer and +11.6 % with Llama 3.2 3B
 So on a small Mac the decoder pays off when the answer repeats itself a lot (unit tests, boilerplate) and can cost a few
 percent on prose. Likely reasons (not measured on the Air): a smaller GPU with a small model is less limited by memory
 reads, so checking extra tokens costs relatively more than on the Studio (where a 3-token check pass costs only 1.17×
-a 1-token pass); and the demo always ran H8 second, on a laptop that slows down as it warms up. Switching guessing off
+a 1-token pass); and the demo always ran our decoder second, on a laptop that slows down as it warms up. Switching guessing off
 when it is not paying (adaptive drafting) is the obvious next step and is not done here. Every number in the Results section is
-Glimmer on the M5 Max. H9 applies only to Glimmer (its attention layout is what triggers MLX's slow path).
+Glimmer on the M5 Max. Split attention applies only to Glimmer (its attention layout is what triggers MLX's slow path).
 
 **What this is.** Muse Glimmer 30B (Meta's open-weight model, 4-bit, MLX) runs on a Mac Studio and is asked to make
 *its own* text generation faster without changing what it outputs. Every change it proposes passes through a
@@ -96,12 +160,12 @@ replicated in a second race.
 | Fused MLP, originals freed (refine 1) | Glimmer | bit-exact | +0.17 % | −0.74 % | +0.32 % | +0.3–0.9 GB |
 | Fused MLP for decode only (refine 2) | Glimmer | bit-exact | +0.17–0.20 % | ±0 | ±0 | +7.6 GB |
 | **Fused MLP, one weight copy, prompts via slices (refine 3)** | **Glimmer** | **bit-exact** | **+0.17 %** | **+0.13 %** | **+0.10 %** | **+0.2–0.8 GB** |
-| **H8: prompt-lookup decoding (K=2), exact rollback past the 2048-token window** | human idea and analysis; decoder written with Claude | exact in fp32 (see below) | **+10.5 %**; **+11.6 %** on a self-tuning prompt | unchanged (same prefill code) | unchanged | 0 |
-| **H8 + H9: split 3-token attention so MLX's fused kernel is used** | human idea (H9); Glimmer's 16 attempts: none correct | normal decoding bit-exact; H8+H9 exact in fp32 | **+17.1 %** code task; **+5.4 % to +21.0 %** on 6 raced self-tuning prompts | unchanged | unchanged | 0 |
+| **Prompt-lookup decoding (K=2), exact rollback past the 2048-token window** | human idea and analysis; decoder written with Claude | exact in fp32 (see below) | **+10.5 %**; **+11.6 %** on a self-tuning prompt | unchanged (same prefill code) | unchanged | 0 |
+| **Prompt lookup + split attention: 3-token attention split so MLX's fused kernel is used** | human idea (split attention); Glimmer's 16 attempts: none correct | normal decoding bit-exact; prompt lookup + split attention exact in fp32 | **+17.1 %** code task; **+5.4 % to +21.0 %** on 6 raced self-tuning prompts | unchanged | unchanged | 0 |
 
-Each Glimmer row was raced 2–3 times (12–18 paired runs per case, all in the same direction). H8 was raced 3 times
+Each Glimmer row was raced 2–3 times (12–18 paired runs per case, all in the same direction). Prompt-lookup decoding was raced 3 times
 (18 paired runs per case, 18/18 faster; medians +10.47 to +10.53 % and +11.57 to +11.59 %), and on two larger
-prompts 3 times each (+10.1 % at 4.5K tokens, +9.5 % at 7.1K). H8+H9 vs normal decoding was raced twice on
+prompts 3 times each (+10.1 % at 4.5K tokens, +9.5 % at 7.1K). Prompt lookup with split attention vs normal decoding was raced twice on
 each of 6 self-tuning prompts (6 pairs per race): the sweep's worst prompt +5.39 / +5.42 %, the 14K prompt +7.73 / +7.74 %,
 the sweep's median prompt +12.74 / +12.70 %, the first prompt +13.60 / +13.55 %, the 7K prompt +16.12 / +16.09 %, the
 sweep's best prompt +21.02 / +21.04 %; the code task inside the same races +17.04 to +17.12 %. In total: 21 races, 252
@@ -110,11 +174,11 @@ crashed at start-up in its final pair because of how the batch was launched; it 
 
 **Standard benchmark: Spec-Bench subset.** Spec-Bench (Xia et al. 2024) is the benchmark used to compare speculative
 decoding methods: 6 tasks of 80 prompts. We ran 10 evenly spaced prompts per task (60, first turn only), Glimmer 30B
-with H9, reasoning low, up to 1024 new tokens, each prompt once with each decoder per round, two rounds with opposite
-order (`bench/spec_bench.py`; Spec-Bench data not redistributed, only question ids are saved). Speed-up of H8+H9 over
+with split attention, reasoning low, up to 1024 new tokens, each prompt once with each decoder per round, two rounds with opposite
+order (`bench/spec_bench.py`; Spec-Bench data not redistributed, only question ids are saved). Speed-up of our decoder (prompt lookup + split attention) over
 normal decoding, Spec-Bench style (all tokens / all wall time, prompt processing included):
 
-| Task | Normal decoding (round 1) | H8+H9 (round 1) | Speed-up round 1 / round 2 | Tokens per pass | Published PLD, RTX 3090, Vicuna-7B |
+| Task | Normal decoding (round 1) | Ours (round 1) | Speed-up round 1 / round 2 | Tokens per pass | Published PLD, RTX 3090, Vicuna-7B |
 |---|---|---|---|---|---|
 | Multi-turn conversation (MT-bench) | 26.28 tok/s | 28.05 tok/s | 1.067× / 1.068× | 1.14 | 1.64× |
 | Translation (WMT14 de-en) | 25.76 | 36.92 | **1.433× / 1.432×** | 1.55 | 1.15× |
@@ -137,7 +201,7 @@ PyTorch and from forgetting that 4-bit weights are packed `uint32`; in the close
 locate where rounding differences came from, and it under-estimated memory by forgetting the 52 layers — which the
 referee caught.
 
-**Prompt-lookup decoding (H8).** Glimmer often repeats what it already wrote (code, names, phrases). H8 guesses the
+**Prompt-lookup decoding.** Glimmer often repeats what it already wrote (code, names, phrases). Prompt lookup guesses the
 next 2 tokens from the earlier text and checks them in one forward pass, keeping the ones the model agrees with.
 The technique itself is not ours: prompt-lookup decoding was introduced by Apoorv Saxena (2023,
 github.com/apoorvumang/prompt-lookup-decoding) and is available in Hugging Face transformers
@@ -151,7 +215,7 @@ estimated 1.31×; a 3-token pass costs only 1.17×). mlx-lm cannot roll back Gli
 context passes 2048 tokens (its own speculative decoder refuses); ours does it exactly, by cutting the rejected tokens off
 the end right after a multi-token pass (`bench/lookup_decode.py`).
 
-*Correctness.* With float32 activations (and TF32 off), every token H8 produced on the real model equals what normal
+*Correctness.* With float32 activations (and TF32 off), every token prompt lookup produced on the real model equals what normal
 greedy decoding picks: 0 differences in 1,024 tokens, 512 of them past the window (`bench/h8_check.py`). A tiny-model
 test also proves a broken rollback is caught (`bench/test_lookup_decode.py`). In normal bf16, any batched check can flip
 near-tied tokens: in 1,536 checked tokens, 5 differed from what normal decoding picks, 4 within one bf16 rounding step and
@@ -161,21 +225,21 @@ code-task demo the two texts were identical). MLX's own prompt and decode paths 
 (`MLX_ENABLE_TF32=1`, `bench/h8_logit_diff.py`).
 
 *Scope.* Sweep over all 19 recorded self-tuning prompts whose recorded answer is at least 800 tokens
-(`bench/h8_sweep.py`): H8 alone median +9.4 % (+1.3 to +22.8 %); H8+H9 median +12.8 % (+5.4 to +21.0 %). The gain depends
+(`bench/h8_sweep.py`): prompt lookup alone median +9.4 % (+1.3 to +22.8 %); with split attention median +12.8 % (+5.4 to +21.0 %). The gain depends
 on how much the output repeats itself, and in bf16 also on which text is written after a near-tie.
 
-**Why the gain shrank on long contexts, and the fix (H9).** The sweep showed H8's gain falling from ~11 % to ~1 % as the
+**Why the gain shrank on long contexts, and the fix (split attention).** The sweep showed prompt lookup's gain falling from ~11 % to ~1 % as the
 context grew to 14K tokens, although its guesses were as good. Measured pass costs (`bench/verify_cost.py --context`): at
 13,759 tokens a 3-token pass cost 1.44× a 1-token pass, a 2-token pass only 1.09×. MLX 0.32.4's fused attention kernel
 for short queries requires query length × GQA factor ≤ 32; Glimmer's GQA factor is 16 (32 query heads, 2 key-value
-heads), so H8's 3-token passes fell back to unfused attention. H9 (`bench/variants/v2_h9_split_attn.py`) computes those
+heads), so prompt lookup's 3-token passes fell back to unfused attention. Split attention (`bench/variants/v2_h9_split_attn.py`) computes those
 passes' attention in chunks of at most 2 queries: 3-token pass 1.44× → 1.21× at 14K. Normal decoding stays bit-exact
-(golden check); H8+H9 gives 0 wrong tokens on the 14K prompt in bf16 and is exact in fp32.
+(golden check); prompt lookup with split attention gives 0 wrong tokens on the 14K prompt in bf16 and is exact in fp32.
 
 **Can Glimmer fix this itself? (`bench/loop.py --task h9`)** We gave Glimmer the measured pass costs and MLX's kernel
-limit, but not our solution (H9 was committed to `docs/human_audit.md` first), and let the referee judge every attempt:
+limit, but not our solution (split attention was committed to `docs/human_audit.md` first), and let the referee judge every attempt:
 golden check, 3-token pass cost at 14K, then prompt-lookup correctness. 16 attempts (8 greedy with feedback, 8 sampled
-independently at temperature 0.7): 10 found the speed-up (1.20–1.23×, as fast as H9) but were **incorrect**, 5 crashed,
+independently at temperature 0.7): 10 found the speed-up (1.20–1.23×, as fast as split attention) but were **incorrect**, 5 crashed,
 1 ran out of tokens; **0 were correct**. In the three fast versions we read line by line (the first greedy round), queries
 could attend to keys of later tokens in the same pass (the code ignored that MLX aligns a causal mask to the end of the
 keys), i.e. the model could peek at the guesses it was checking: two of them "accepted" 93–95 % of guesses instead of the
@@ -195,11 +259,12 @@ referee also timed independent calls that the GPU overlaps, which overstated a p
 
 - `bench/` — the referee: `run_one.py` (golden / check / speed), `ab.py` (interleaved races), `compare.py` (verdicts),
   `safety.py` (static gate), `loop.py` + `propose.py` (Glimmer proposes, referee judges, results fed back),
-  `variants/` (every candidate, human and Glimmer), probes for the kernel work, `lookup_decode.py` (H8 decoder),
+  `variants/` (every candidate, human and Glimmer), probes for the kernel work, `lookup_decode.py` (prompt-lookup decoder),
   `lookup_policy.py`, `verify_cost.py`, `h8_check.py`, `test_lookup_decode.py`, `h8_sweep.py`, `prompts_index.py`
-  (H8/H9 analysis, correctness, sweep).
-- `run_demo.sh`, `demo/demo.py` — the one-command side-by-side demo (normal vs H8+H9; `--small` for 8 GB Macs).
+  (prompt-lookup and split-attention analysis, correctness, sweep).
+- `run_demo.sh`, `demo/demo.py` — the one-command side-by-side demo (normal vs ours; `--small` for 8 GB Macs).
 - `docs/human_audit.md` — our own optimization ideas, committed before Glimmer saw the code.
+- `docs/figures/` — the charts in this README; `python docs/figures/make_figures.py` rebuilds them from `runs/h8/`.
 - `runs/` — every race (`bench/bench.csv`), correctness report, Glimmer conversation and raw output.
 
 ## Reproduce
@@ -210,12 +275,12 @@ python -m venv .venv && source .venv/bin/activate && pip install -r requirements
 python bench/run_one.py --variant v0_original --mode golden
 python bench/run_one.py --variant g_guided_medium_10281717_r1 --mode check
 python bench/ab.py --a v0_original --b g_guided_medium_10281717_r1 --pairs 6
-python bench/test_lookup_decode.py                     # H8 logic, tiny model, seconds
-python bench/h8_check.py                               # H8 on the real model vs normal decoding
+python bench/test_lookup_decode.py                     # prompt-lookup logic, tiny model, seconds
+python bench/h8_check.py                               # prompt lookup on the real model vs normal decoding
 python bench/ab.py --a v0_original --b v0_original@lookup --plan h8 --pairs 6
-python bench/ab.py --a v0_original --b v2_h9_split_attn@lookup --plan h8 --pairs 6   # normal vs H8+H9
+python bench/ab.py --a v0_original --b v2_h9_split_attn@lookup --plan h8 --pairs 6   # normal vs prompt lookup + split attention
 ./run_demo.sh                                          # live side-by-side demo (or ./run_demo.sh --small)
-python bench/loop.py --task h9 --arm guided --strength medium --attempts 4   # Glimmer's H9 task
+python bench/loop.py --task h9 --arm guided --strength medium --attempts 4   # Glimmer's split-attention task
 ```
 
 ## Credits and licences
