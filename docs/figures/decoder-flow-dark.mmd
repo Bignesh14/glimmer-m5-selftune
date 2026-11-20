@@ -1,0 +1,12 @@
+%% render: mmdc -i docs/figures/decoder-flow-dark.mmd -o docs/figures/decoder-flow-dark.png -c docs/figures/mermaid-dark.json -b '#1a1a19' -s 2
+flowchart LR
+  A["Text<br/>so far"] --> B{"Last 2 tokens<br/>seen earlier?"}
+  B -- "no" --> D["Normal step:<br/>1 new token"]
+  B -- "yes" --> C["Prompt lookup:<br/>guess the next 2 tokens<br/>from what followed<br/>last time"]
+  C --> E["One forward pass<br/>checks all 3 positions<br/><i>split attention keeps<br/>MLX's fast kernel</i>"]
+  E --> F["Keep the guesses<br/>the model agrees with,<br/>plus 1 token of its own"]
+  F --> G["Exact rollback:<br/>cut rejected tokens<br/>off the cache, also past<br/>the 2048-token window"]
+  G --> A
+  D --> A
+  classDef key stroke:#d95926,stroke-width:2px
+  class C,E,G key

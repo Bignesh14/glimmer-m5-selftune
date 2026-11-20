@@ -1,0 +1,10 @@
+%% render: mmdc -i docs/figures/referee-flow-light.mmd -o docs/figures/referee-flow-light.png -c docs/figures/mermaid-light.json -b '#fcfcfb' -s 2
+flowchart LR
+  P["Glimmer proposes<br/>a change to its<br/>own model code"] --> S{"Safety<br/>gate"}
+  S -- "passes" --> G{"Bit-exact<br/>vs golden?"}
+  G -- "yes" --> R["Interleaved<br/>A/B races,<br/>6 paired runs,<br/>replicated"]
+  R --> V["Verdict and<br/>numbers back<br/>to Glimmer"]
+  S -- "fails" --> X["Rejected,<br/>with the reason,<br/>back to Glimmer"]
+  G -- "no" --> X
+  classDef key stroke:#eb6834,stroke-width:2px
+  class S,G key

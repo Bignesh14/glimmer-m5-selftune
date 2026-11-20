@@ -30,17 +30,10 @@ the referee rejected every one (details below).
 
 ### How the decoder works
 
-```mermaid
-flowchart LR
-  A["Text so far"] --> B{"Have the last 2 tokens<br/>appeared earlier?"}
-  B -- "no" --> D["Normal step:<br/>1 new token"]
-  B -- "yes" --> C["Prompt lookup: guess the next 2 tokens<br/>from what followed last time"]
-  C --> E["One forward pass checks all 3 positions<br/>(split attention: chunks of ≤ 2 queries<br/>so MLX keeps its fast attention kernel)"]
-  E --> F["Keep the guesses the model agrees with,<br/>plus 1 token of its own"]
-  F --> G["Exact rollback: cut rejected tokens off the cache,<br/>also past Glimmer's 2048-token sliding window"]
-  G --> A
-  D --> A
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/decoder-flow-dark.png">
+  <img alt="Flow diagram: if the last 2 tokens appeared earlier, prompt lookup guesses the next 2 tokens; one forward pass checks all 3 positions (split attention keeps MLX's fast kernel); the guesses the model agrees with are kept plus 1 token of its own; rejected tokens are cut off the cache exactly, also past the 2048-token window; otherwise a normal 1-token step" src="docs/figures/decoder-flow-light.png">
+</picture>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/pass-cost-dark.png">
@@ -59,22 +52,17 @@ flowchart LR
 
 ### The referee: how every change was judged
 
-```mermaid
-flowchart LR
-  P["Glimmer proposes a change<br/>to its own model code"] --> S{"Safety<br/>gate"}
-  S -- "passes" --> G{"Bit-exact<br/>vs golden?"}
-  G -- "yes" --> R["Interleaved A/B races<br/>6 paired runs, replicated"]
-  R --> V["Verdict + numbers<br/>back to Glimmer"]
-  S -- "fails" --> X["Rejected, with the reason,<br/>back to Glimmer"]
-  G -- "no" --> X
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/referee-flow-dark.png">
+  <img alt="Flow diagram: Glimmer proposes a change; a safety gate, then a bit-exact check against the golden output, then interleaved A/B races; the verdict and numbers, or the reason for rejection, go back to Glimmer" src="docs/figures/referee-flow-light.png">
+</picture>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/glimmer-attempts-dark.png">
   <img alt="Stacked bar: Glimmer's 16 attempts at the long-context fix; 10 fast but wrong, 5 crashed, 1 ran out of tokens, 0 correct" src="docs/figures/glimmer-attempts-light.png">
 </picture>
 
-All charts are generated from the files in `runs/h8/` by `docs/figures/make_figures.py`.
+All charts are generated from the files in `runs/h8/` by `docs/figures/make_figures.py`; the two diagrams are drawn from `docs/figures/*.mmd` with the Mermaid CLI (command at the top of each file).
 
 ## Try it on your Mac (one command)
 
